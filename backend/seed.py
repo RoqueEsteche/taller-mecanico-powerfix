@@ -130,6 +130,63 @@ def run(db):
         for p in ["inicio", "servicios", "contacto", "inicio", "servicios", "inicio", "admin"]:
             db.add(models.PageView(pagina=p))
 
+    # ── Turnos de prueba ───────────────────────────────────────────────────────
+    if db.query(models.Turno).count() == 0:
+        from datetime import date, timedelta
+        hoy = date.today()
+        turnos_prueba = [
+            {
+                "cliente_nombre": "Carlos Rodríguez", "cliente_email": "carlos@mail.com",
+                "cliente_telefono": "3814101010",
+                "vehiculo": "Motosierra Stihl MS 250", "mecanico": "Técnico 1",
+                "servicio": "Afilado de cadena y ajuste de carburador",
+                "fecha": (hoy + timedelta(days=1)).strftime("%Y-%m-%d"), "hora": "09:00",
+                "estado": "confirmado", "notas": "Traer cadena de repuesto",
+            },
+            {
+                "cliente_nombre": "Laura Sánchez", "cliente_email": "laura@mail.com",
+                "cliente_telefono": "3814202020",
+                "vehiculo": "Cortacésped Husqvarna LC 140", "mecanico": "Técnico 2",
+                "servicio": "Mantenimiento preventivo completo",
+                "fecha": (hoy + timedelta(days=1)).strftime("%Y-%m-%d"), "hora": "11:00",
+                "estado": "agendado",
+            },
+            {
+                "cliente_nombre": "Jorge Medina", "cliente_email": "jorge@mail.com",
+                "cliente_telefono": "3814303030",
+                "vehiculo": "Generador Briggs & Stratton 5500W", "mecanico": "Técnico 1",
+                "servicio": "Revisión de AVR y prueba de carga",
+                "fecha": (hoy + timedelta(days=2)).strftime("%Y-%m-%d"), "hora": "10:30",
+                "estado": "agendado",
+            },
+            {
+                "cliente_nombre": "Ana Torres", "cliente_email": "ana@mail.com",
+                "cliente_telefono": "3814404040",
+                "vehiculo": "Desmalezadora Kawasaki TJ 45E", "mecanico": "Técnico 2",
+                "servicio": "Diagnóstico y reparación de embrague centrífugo",
+                "fecha": hoy.strftime("%Y-%m-%d"), "hora": "14:00",
+                "estado": "en_curso",
+            },
+            {
+                "cliente_nombre": "Pedro Ramírez", "cliente_email": "pedro@mail.com",
+                "cliente_telefono": "3814505050",
+                "vehiculo": "Motobomba Honda WX10", "mecanico": "Técnico 1",
+                "servicio": "Cambio de sello mecánico e impeller",
+                "fecha": (hoy - timedelta(days=1)).strftime("%Y-%m-%d"), "hora": "09:30",
+                "estado": "completado", "notas": "Se entregó con prueba de caudal",
+            },
+            {
+                "cliente_nombre": "Sofía López", "cliente_email": "sofia@mail.com",
+                "cliente_telefono": "3814606060",
+                "vehiculo": "Fumigadora Agria 2600", "mecanico": "Técnico 2",
+                "servicio": "Revisión de bomba y regulación de presión",
+                "fecha": (hoy - timedelta(days=2)).strftime("%Y-%m-%d"), "hora": "15:00",
+                "estado": "no_show", "notas": "No se presentó, reagendar",
+            },
+        ]
+        for t in turnos_prueba:
+            db.add(models.Turno(**t))
+
     db.commit()
     print("OK - Base de datos poblada exitosamente.")
     print("   Admin: admin@powerfix.com / Admin2024!")

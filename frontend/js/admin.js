@@ -74,6 +74,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadDashboard();
   await loadContactos();
   await loadServicios();
+  await loadAgenda();
+  await loadClientes();
 });
 
 /* ── Sidebar navigation ────────────────────────────────────── */
@@ -84,7 +86,9 @@ function initSidebar() {
 
   const TITLES = {
     dashboard: 'Dashboard',
-    contactos: 'Contactos / Leads',
+    agenda:    'Agenda de Turnos',
+    contactos: 'Órdenes de Trabajo',
+    clientes:  'Clientes',
     servicios: 'Catálogo de Servicios',
     analytics: 'Analítica de Visitas',
   };
@@ -128,8 +132,14 @@ async function loadDashboard() {
     setText('statServicios', stats.total_servicios);
     setText('statVisitas',   stats.total_visitas);
 
-    /* Badge en sidebar */
-    setText('contactosBadge', stats.contactos_nuevo);
+    /* Badges en sidebar */
+    setText('contactosBadge',  stats.contactos_nuevo);
+    setText('agendaBadge',     stats.turnos_pendientes);
+
+    /* Stat cards — turnos */
+    setText('statTurnos',          stats.total_turnos);
+    setText('statTurnosHoy',       stats.turnos_hoy);
+    setText('statTurnosPendientes', stats.turnos_pendientes);
 
     /* Gráfico: por tipo de máquina */
     renderBarChart('chartMaquinas', charts.maquinas.labels, charts.maquinas.data, 'Consultas');
@@ -540,6 +550,258 @@ function closeContactoModal() {
 
 document.getElementById('modalClose')?.addEventListener('click', closeContactoModal);
 document.getElementById('modalOverlay')?.addEventListener('click', closeContactoModal);
+
+/* ═══════════════════════════════════════════════════════════════
+   AGENDA — CRUD de turnos
+   ═══════════════════════════════════════════════════════════════ */
+
+const ESTADO_TURNO_LABEL = {
+  agendado:   'Agendado',
+  confirmado: 'Confirmado',
+  en_curso:   'En Curso',
+  completado: 'Completado',
+  no_show:    'No Show',
+};
+
+async function loadAgenda() {
+  const tbody  = document.getElementById('agendaBody');
+  const loader = document.getElementById('agendaLoader');
+  if (!tbody) return;
+
+  loader?.classList.add('loader--visible');
+  tbody.innerHTML = '';
+
+  try {
+    const res = await fetchAuth('/api/turnos');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const turnos = await res.json();
+
+    if (turnos.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" class="td-empty">No hay turnos registrados. Creá el primero con "Nuevo Turno".</td></tr>`;
+      return;
+    }
+
+    turnos.forEach(t => {
+      const tr = document.createElement('tr');
+      const fechaFmt = t.fecha
+        ? new Date(t.fecha + 'T00:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' })
+        : '—';
+      tr.innerHTML = `
+        <td>
+          <strong>${fechaFmt}</strong>
+          <div class="td-muted">${t.hora}</div>
+        </td>
+        <td>
+          <strong>${t.cliente_nombre}</strong>
+          ${t.cliente_telefono ? `<div class="td-muted">${t.cliente_telefono}</div>` : ''}
+        </td>
+        <td>${t.vehiculo}</td>
+        <td>${t.servicio}</td>
+        <td>${t.mecanico || '<span class="td-muted">—</span>'}</td>
+        <td>
+          <select class="select-estado" data-id="${t.id}" data-action="turno-estado" aria-label="Estado del turno ${t.id}">
+            ${Object.entries(ESTADO_TURNO_LABEL).map(([val, lbl]) =>
+              `<option value="${val}" ${t.estado === val ? 'selected' : ''}>${lbl}</option>`
+            ).join('')}
+          </select>
+        </td>
+        <td class="td-actions">
+          <button type="button" class="btn btn--sm btn--view" data-id="${t.id}" data-action="turno-edit" title="Editar turno">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+          <button type="button" class="btn btn--sm btn--delete" data-id="${t.id}" data-action="turno-delete" title="Eliminar turno">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>`;
+      tr._turnoData = t;
+      tbody.appendChild(tr);
+    });
+
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="td-error">Error al cargar la agenda. Verificá que el servidor esté activo.</td></tr>`;
+  } finally {
+    loader?.classList.remove('loader--visible');
+  }
+}
+
+/* Delegación de eventos en tabla de agenda */
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('agendaBody')?.addEventListener('click',  handleAgendaAction);
+  document.getElementById('agendaBody')?.addEventListener('change', handleAgendaAction);
+  document.getElementById('nuevoTurnoBtn')?.addEventListener('click', () => openTurnoModal());
+  document.getElementById('recargarClientes')?.addEventListener('click', loadClientes);
+});
+
+async function handleAgendaAction(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+
+  const id     = parseInt(btn.dataset.id);
+  const action = btn.dataset.action;
+  const tr     = btn.closest('tr');
+
+  if (action === 'turno-edit') {
+    openTurnoModal(tr._turnoData);
+  }
+
+  if (action === 'turno-estado') {
+    try {
+      const res = await fetchAuth(`/api/turnos/${id}/estado`, 'PATCH', { estado: btn.value });
+      if (!res.ok) throw new Error();
+      if (tr._turnoData) tr._turnoData.estado = btn.value;
+    } catch {
+      alert('No se pudo actualizar el estado del turno.');
+    }
+  }
+
+  if (action === 'turno-delete') {
+    if (!confirm('¿Eliminar este turno? Esta acción no se puede deshacer.')) return;
+    try {
+      const res = await fetchAuth(`/api/turnos/${id}`, 'DELETE');
+      if (!res.ok) throw new Error();
+      tr.remove();
+      const badge = document.getElementById('agendaBadge');
+      if (badge) badge.textContent = Math.max(0, parseInt(badge.textContent || '0') - 1);
+    } catch {
+      alert('No se pudo eliminar el turno.');
+    }
+  }
+}
+
+/* ── Modal crear / editar turno ────────────────────────────── */
+function openTurnoModal(turno = null) {
+  const modal = document.getElementById('turnoModal');
+  const title = document.getElementById('turnoModalTitle');
+  const form  = document.getElementById('turnoForm');
+  if (!modal) return;
+
+  form.reset();
+
+  if (turno) {
+    title.textContent = 'Editar Turno';
+    document.getElementById('turnoId').value  = turno.id;
+    document.getElementById('tNombre').value  = turno.cliente_nombre;
+    document.getElementById('tEmail').value   = turno.cliente_email    || '';
+    document.getElementById('tTelefono').value = turno.cliente_telefono || '';
+    document.getElementById('tVehiculo').value = turno.vehiculo;
+    document.getElementById('tServicio').value = turno.servicio;
+    document.getElementById('tFecha').value   = turno.fecha;
+    document.getElementById('tHora').value    = turno.hora;
+    document.getElementById('tMecanico').value = turno.mecanico || '';
+    document.getElementById('tNotas').value   = turno.notas    || '';
+  } else {
+    title.textContent = 'Nuevo Turno';
+    document.getElementById('turnoId').value = '';
+    /* Precargar fecha de hoy */
+    document.getElementById('tFecha').value = new Date().toISOString().split('T')[0];
+  }
+
+  modal.classList.add('modal--open');
+}
+
+function closeTurnoModal() {
+  document.getElementById('turnoModal')?.classList.remove('modal--open');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('turnoModalClose')?.addEventListener('click', closeTurnoModal);
+  document.getElementById('turnoModalCancel')?.addEventListener('click', closeTurnoModal);
+  document.getElementById('turnoModalOverlay')?.addEventListener('click', closeTurnoModal);
+
+  document.getElementById('turnoForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const id  = document.getElementById('turnoId').value;
+    const btn = document.getElementById('turnoFormSubmit');
+    const txt = document.getElementById('turnoSubmitText');
+
+    const nombre   = document.getElementById('tNombre').value.trim();
+    const vehiculo = document.getElementById('tVehiculo').value.trim();
+    const servicio = document.getElementById('tServicio').value.trim();
+    const fecha    = document.getElementById('tFecha').value;
+    const hora     = document.getElementById('tHora').value;
+
+    if (!nombre || !vehiculo || !servicio || !fecha || !hora) {
+      alert('Completá los campos obligatorios: nombre, vehículo, servicio, fecha y hora.');
+      return;
+    }
+
+    const payload = {
+      cliente_nombre:   nombre,
+      cliente_email:    document.getElementById('tEmail').value.trim()    || null,
+      cliente_telefono: document.getElementById('tTelefono').value.trim() || null,
+      vehiculo,
+      servicio,
+      fecha,
+      hora,
+      mecanico: document.getElementById('tMecanico').value.trim() || null,
+      notas:    document.getElementById('tNotas').value.trim()    || null,
+    };
+
+    btn.disabled    = true;
+    txt.textContent = 'Guardando...';
+
+    try {
+      const res = id
+        ? await fetchAuth(`/api/turnos/${id}`, 'PUT',  payload)
+        : await fetchAuth('/api/turnos',        'POST', payload);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Error ${res.status}`);
+      }
+
+      closeTurnoModal();
+      await loadAgenda();
+
+    } catch (err) {
+      alert(`No se pudo guardar el turno: ${err.message}`);
+    } finally {
+      btn.disabled    = false;
+      txt.textContent = 'Guardar Turno';
+    }
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   CLIENTES
+   ═══════════════════════════════════════════════════════════════ */
+
+async function loadClientes() {
+  const tbody  = document.getElementById('clientesBody');
+  const loader = document.getElementById('clientesLoader');
+  if (!tbody) return;
+
+  loader?.classList.add('loader--visible');
+  tbody.innerHTML = '';
+
+  try {
+    const res = await fetchAuth('/api/clientes');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const clientes = await res.json();
+
+    if (clientes.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="td-empty">No hay clientes registrados aún.</td></tr>`;
+      return;
+    }
+
+    clientes.forEach(c => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${c.nombre} ${c.apellido}</strong></td>
+        <td><a href="mailto:${c.email}" class="modal-value--link">${c.email}</a></td>
+        <td>${c.telefono || '<span class="td-muted">—</span>'}</td>
+        <td><span class="badge badge--nuevo">${c.total_consultas}</span></td>
+        <td>${window.PF.formatDate(c.ultima_consulta)}</td>`;
+      tbody.appendChild(tr);
+    });
+
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="td-error">Error al cargar clientes.</td></tr>`;
+  } finally {
+    loader?.classList.remove('loader--visible');
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════════
    CHARTS

@@ -92,3 +92,32 @@ class StatsResponse(BaseModel):
     total_servicios: int
     total_usuarios: int
     total_visitas: int
+    total_turnos: int
+    turnos_hoy: int
+    turnos_pendientes: int
+
+
+# ── Turnos / Agenda ───────────────────────────────────────────────────────────
+class TurnoCreate(BaseModel):
+    cliente_nombre:   str = Field(min_length=2, max_length=200)
+    cliente_email:    Optional[str] = None
+    cliente_telefono: Optional[str] = None
+    vehiculo:         str = Field(min_length=2, max_length=200)
+    servicio:         str = Field(min_length=2, max_length=200)
+    fecha:            str = Field(min_length=10, max_length=10)
+    hora:             str = Field(min_length=5,  max_length=5)
+    mecanico:         Optional[str] = None
+    notas:            Optional[str] = None
+
+
+class TurnoResponse(TurnoCreate):
+    id: int
+    estado: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TurnoUpdateEstado(BaseModel):
+    estado: str

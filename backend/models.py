@@ -50,3 +50,20 @@ class PageView(Base):
     id = Column(Integer, primary_key=True, index=True)
     pagina = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Turno(Base):
+    __tablename__ = "turnos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cliente_nombre   = Column(String(200), nullable=False)
+    cliente_email    = Column(String(150))
+    cliente_telefono = Column(String(20))
+    vehiculo         = Column(String(200), nullable=False)   # marca/modelo o tipo de máquina
+    servicio         = Column(String(200), nullable=False)
+    fecha            = Column(String(10),  nullable=False)   # YYYY-MM-DD
+    hora             = Column(String(5),   nullable=False)   # HH:MM
+    mecanico         = Column(String(100))
+    estado           = Column(String(20),  default="agendado")  # agendado|confirmado|en_curso|completado|no_show
+    notas            = Column(Text)
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())

@@ -45,13 +45,24 @@
           <span class="sidebar__item-icon"><i class="fa-solid fa-gauge-high"></i></span>
           Dashboard
         </button>
+        <button type="button" class="sidebar__item" data-panel="agenda">
+          <span class="sidebar__item-icon"><i class="fa-solid fa-calendar-days"></i></span>
+          Agenda
+          <span class="sidebar__item-badge" id="agendaBadge">0</span>
+        </button>
         <button type="button" class="sidebar__item" data-panel="contactos">
           <span class="sidebar__item-icon"><i class="fa-solid fa-inbox"></i></span>
-          Contactos
+          Órdenes de Trabajo
           <span class="sidebar__item-badge" id="contactosBadge">0</span>
         </button>
+        <button type="button" class="sidebar__item" data-panel="clientes">
+          <span class="sidebar__item-icon"><i class="fa-solid fa-users"></i></span>
+          Clientes
+        </button>
+
+        <div class="sidebar__section-label">Gestión</div>
         <button type="button" class="sidebar__item" data-panel="servicios">
-          <span class="sidebar__item-icon"><i class="fa-solid fa-list"></i></span>
+          <span class="sidebar__item-icon"><i class="fa-solid fa-screwdriver-wrench"></i></span>
           Servicios
         </button>
 
@@ -127,12 +138,27 @@
           <div class="stat-card">
             <div class="stat-card__label">Servicios</div>
             <div class="stat-card__value" id="statServicios">—</div>
-            <div class="stat-card__icon"><i class="fa-solid fa-list"></i></div>
+            <div class="stat-card__icon"><i class="fa-solid fa-screwdriver-wrench"></i></div>
           </div>
           <div class="stat-card">
             <div class="stat-card__label">Visitas Totales</div>
             <div class="stat-card__value" id="statVisitas">—</div>
             <div class="stat-card__icon"><i class="fa-solid fa-eye"></i></div>
+          </div>
+          <div class="stat-card stat-card--info">
+            <div class="stat-card__label">Turnos Totales</div>
+            <div class="stat-card__value" id="statTurnos">—</div>
+            <div class="stat-card__icon"><i class="fa-solid fa-calendar-days"></i></div>
+          </div>
+          <div class="stat-card stat-card--warning">
+            <div class="stat-card__label">Turnos Hoy</div>
+            <div class="stat-card__value" id="statTurnosHoy">—</div>
+            <div class="stat-card__icon"><i class="fa-solid fa-calendar-check"></i></div>
+          </div>
+          <div class="stat-card stat-card--success">
+            <div class="stat-card__label">Turnos Pendientes</div>
+            <div class="stat-card__value" id="statTurnosPendientes">—</div>
+            <div class="stat-card__icon"><i class="fa-solid fa-hourglass-half"></i></div>
           </div>
         </div>
 
@@ -155,6 +181,138 @@
               </div>
             </div>
             <canvas id="chartEstados" height="280" aria-label="Gráfico de distribución por estado" role="img"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── PANEL: AGENDA ─────────────────────────────────────── -->
+      <section class="admin-panel" id="panel-agenda" aria-label="Agenda de turnos">
+
+        <div class="data-table-wrapper">
+          <div class="data-table-header">
+            <div>
+              <div class="data-table-header__title">Agenda de Turnos</div>
+            </div>
+            <div class="data-table-actions">
+              <div class="loader loader--inline" id="agendaLoader">
+                <div class="loader__spinner loader__spinner--sm"></div>
+              </div>
+              <button type="button" class="btn btn--primary btn--sm" id="nuevoTurnoBtn">
+                <i class="fa-solid fa-calendar-plus"></i> Nuevo Turno
+              </button>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table class="data-table" id="agendaTable" aria-label="Tabla de turnos">
+              <thead>
+                <tr>
+                  <th>Fecha / Hora</th>
+                  <th>Cliente</th>
+                  <th>Vehículo / Máquina</th>
+                  <th>Servicio</th>
+                  <th>Mecánico</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="agendaBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Modal crear / editar turno -->
+        <div class="modal" id="turnoModal" role="dialog" aria-modal="true" aria-labelledby="turnoModalTitle">
+          <div class="modal__overlay" id="turnoModalOverlay"></div>
+          <div class="modal__content modal__content--lg">
+            <button type="button" class="modal__close" id="turnoModalClose" aria-label="Cerrar">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+            <h3 class="modal__title" id="turnoModalTitle">Nuevo Turno</h3>
+            <form id="turnoForm" novalidate>
+              <input type="hidden" id="turnoId" />
+              <div class="form__row">
+                <div class="form__group">
+                  <label class="form__label" for="tNombre">Nombre del cliente <span aria-hidden="true">*</span></label>
+                  <input type="text" class="form__input" id="tNombre" required placeholder="ej: Juan Pérez" />
+                </div>
+                <div class="form__group">
+                  <label class="form__label" for="tTelefono">Teléfono</label>
+                  <input type="tel" class="form__input" id="tTelefono" placeholder="ej: 3814 123456" />
+                </div>
+              </div>
+              <div class="form__group">
+                <label class="form__label" for="tEmail">Email del cliente</label>
+                <input type="email" class="form__input" id="tEmail" placeholder="ej: cliente@mail.com" />
+              </div>
+              <div class="form__group">
+                <label class="form__label" for="tVehiculo">Vehículo / Máquina <span aria-hidden="true">*</span></label>
+                <input type="text" class="form__input" id="tVehiculo" required placeholder="ej: Motosierra Stihl MS 250 / Toyota Corolla 2020" />
+              </div>
+              <div class="form__group">
+                <label class="form__label" for="tServicio">Servicio a realizar <span aria-hidden="true">*</span></label>
+                <input type="text" class="form__input" id="tServicio" required placeholder="ej: Cambio de aceite y filtros" />
+              </div>
+              <div class="form__row">
+                <div class="form__group">
+                  <label class="form__label" for="tFecha">Fecha <span aria-hidden="true">*</span></label>
+                  <input type="date" class="form__input" id="tFecha" required />
+                </div>
+                <div class="form__group">
+                  <label class="form__label" for="tHora">Hora <span aria-hidden="true">*</span></label>
+                  <input type="time" class="form__input" id="tHora" required />
+                </div>
+              </div>
+              <div class="form__group">
+                <label class="form__label" for="tMecanico">Mecánico asignado</label>
+                <input type="text" class="form__input" id="tMecanico" placeholder="ej: Técnico 1" />
+              </div>
+              <div class="form__group">
+                <label class="form__label" for="tNotas">Notas</label>
+                <textarea class="form__input form__textarea" id="tNotas" rows="2" placeholder="Observaciones adicionales..."></textarea>
+              </div>
+              <div class="form__actions">
+                <button type="button" class="btn btn--secondary" id="turnoModalCancel">Cancelar</button>
+                <button type="submit" class="btn btn--primary" id="turnoFormSubmit">
+                  <span id="turnoSubmitText">Guardar Turno</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── PANEL: CLIENTES ────────────────────────────────────── -->
+      <section class="admin-panel" id="panel-clientes" aria-label="Gestión de clientes">
+
+        <div class="data-table-wrapper">
+          <div class="data-table-header">
+            <div>
+              <div class="data-table-header__title">Clientes</div>
+            </div>
+            <div class="data-table-actions">
+              <div class="loader loader--inline" id="clientesLoader">
+                <div class="loader__spinner loader__spinner--sm"></div>
+              </div>
+              <button type="button" class="btn btn--secondary btn--sm" id="recargarClientes">
+                <i class="fa-solid fa-rotate-right"></i> Recargar
+              </button>
+            </div>
+          </div>
+
+          <div class="table-scroll">
+            <table class="data-table" id="clientesTable" aria-label="Tabla de clientes">
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Email</th>
+                  <th>Teléfono</th>
+                  <th>Consultas</th>
+                  <th>Último contacto</th>
+                </tr>
+              </thead>
+              <tbody id="clientesBody"></tbody>
+            </table>
           </div>
         </div>
       </section>

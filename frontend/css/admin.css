@@ -349,6 +349,13 @@
 .loader--inline { padding: 0; }
 .loader__spinner--sm { width: 24px; height: 24px; border-width: 2px; }
 
+/* ── BADGES DE ESTADO — TURNOS / AGENDA ─────────────────────── */
+.badge--agendado   { background-color: #EFF6FF; color: #1D4ED8; }
+.badge--confirmado { background-color: #DBEAFE; color: #1E40AF; font-weight: 700; }
+.badge--en_curso   { background-color: #FEF9C3; color: #92400E; }
+.badge--completado { background-color: #DCFCE7; color: #15803D; }
+.badge--no_show    { background-color: #FEE2E2; color: var(--color-error); }
+
 /* ── VARIANTES DE BOTONES DE ACCIÓN ─────────────────────────── */
 .btn--delete           { background-color: #FEE2E2; color: var(--color-error); }
 .btn--delete:hover     { background-color: var(--color-error); color: #fff; }

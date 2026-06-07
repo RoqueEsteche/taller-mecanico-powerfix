@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
 from database import engine, Base, get_db, SessionLocal
-from routers import users, contacts, products
+from routers import users, contacts, products, turnos
 import models
 import schemas
 
@@ -50,6 +50,7 @@ app.add_middleware(
 app.include_router(users.router)
 app.include_router(contacts.router)
 app.include_router(products.router)
+app.include_router(turnos.router)
 
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
@@ -70,15 +71,21 @@ def get_stats(db: Session = Depends(get_db)):
             q = q.filter(models.Contacto.estado == estado)
         return q.scalar() or 0
 
+    hoy = datetime.utcnow().strftime("%Y-%m-%d")
     return {
-        "total_contactos": count_contactos(),
-        "contactos_nuevo": count_contactos("nuevo"),
+        "total_contactos":    count_contactos(),
+        "contactos_nuevo":    count_contactos("nuevo"),
         "contactos_en_proceso": count_contactos("en_proceso"),
         "contactos_resuelto": count_contactos("resuelto"),
-        "contactos_cerrado": count_contactos("cerrado"),
-        "total_servicios": db.query(func.count(models.Servicio.id)).scalar() or 0,
-        "total_usuarios": db.query(func.count(models.Usuario.id)).scalar() or 0,
-        "total_visitas": db.query(func.count(models.PageView.id)).scalar() or 0,
+        "contactos_cerrado":  count_contactos("cerrado"),
+        "total_servicios":    db.query(func.count(models.Servicio.id)).scalar() or 0,
+        "total_usuarios":     db.query(func.count(models.Usuario.id)).scalar() or 0,
+        "total_visitas":      db.query(func.count(models.PageView.id)).scalar() or 0,
+        "total_turnos":       db.query(func.count(models.Turno.id)).scalar() or 0,
+        "turnos_hoy":         db.query(func.count(models.Turno.id)).filter(models.Turno.fecha == hoy).scalar() or 0,
+        "turnos_pendientes":  db.query(func.count(models.Turno.id)).filter(
+                                  models.Turno.estado.in_(["agendado", "confirmado", "en_curso"])
+                              ).scalar() or 0,
     }
 
 
@@ -116,6 +123,35 @@ def get_chart_data(db: Session = Depends(get_db)):
     visitas = {"labels": [r[0] for r in visitas_raw], "data": [r[1] for r in visitas_raw]}
 
     return {"maquinas": maquinas, "estados": estados, "visitas": visitas}
+
+
+@app.get("/api/clientes", tags=["Clientes"], summary="Clientes únicos extraídos de órdenes (admin)")
+def listar_clientes(db: Session = Depends(get_db)):
+    """Devuelve clientes únicos agrupados por email desde las órdenes/contactos."""
+    rows = (
+        db.query(
+            models.Contacto.nombre,
+            models.Contacto.apellido,
+            models.Contacto.email,
+            models.Contacto.telefono,
+            func.count(models.Contacto.id).label("total_consultas"),
+            func.max(models.Contacto.created_at).label("ultima_consulta"),
+        )
+        .group_by(models.Contacto.email)
+        .order_by(func.max(models.Contacto.created_at).desc())
+        .all()
+    )
+    return [
+        {
+            "nombre":          r.nombre,
+            "apellido":        r.apellido,
+            "email":           r.email,
+            "telefono":        r.telefono,
+            "total_consultas": r.total_consultas,
+            "ultima_consulta": r.ultima_consulta.isoformat() if r.ultima_consulta else None,
+        }
+        for r in rows
+    ]
 
 
 @app.get("/api", tags=["Root"])
