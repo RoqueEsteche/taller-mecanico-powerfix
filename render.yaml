@@ -1,10 +1,8 @@
 # render.yaml — PowerFix
-# Infraestructura como código para Render.com
+# Un único servicio: FastAPI sirve la API Y el frontend estático.
 # Documentación: https://render.com/docs/blueprint-spec
 
 services:
-
-  # ── Backend: FastAPI ────────────────────────────────────────────────────────
   - type: web
     name: powerfix-api
     runtime: python
@@ -17,19 +15,3 @@ services:
         value: 3.11.0
       - key: SECRET_KEY
         generateValue: true
-
-  # ── Frontend: Sitio estático ────────────────────────────────────────────────
-  - type: static
-    name: powerfix-web
-    rootDir: frontend
-    buildCommand: echo "Sin paso de compilación"
-    staticPublishPath: .
-    plan: free
-    headers:
-      - path: /*
-        name: Cache-Control
-        value: public, max-age=0, must-revalidate
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html

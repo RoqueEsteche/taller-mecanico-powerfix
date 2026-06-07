@@ -1,6 +1,8 @@
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime, timedelta
@@ -116,10 +118,17 @@ def get_chart_data(db: Session = Depends(get_db)):
     return {"maquinas": maquinas, "estados": estados, "visitas": visitas}
 
 
-@app.get("/", tags=["Root"])
+@app.get("/api", tags=["Root"])
 def root():
     return {
         "mensaje": "PowerFix API activa",
         "docs": "/docs",
         "version": "1.0.0",
     }
+
+
+# ── Frontend estático ─────────────────────────────────────────────────────────
+# Debe ir al FINAL para que las rutas API tengan prioridad
+_frontend = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'frontend')
+if os.path.isdir(_frontend):
+    app.mount("/", StaticFiles(directory=_frontend, html=True), name="frontend")
