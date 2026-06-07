@@ -1,97 +1,95 @@
 /**
- * admin.js — PowerFix
- * Panel administrativo: stats, charts (Chart.js), tablas, modales
- * Funcionalidad: CRUD contactos, CRUD servicios, dashboard, analítica
+ * admin.js — PowerFix v2
+ * Panel interno: Órdenes, Agenda, Mecánicos, Inventario, Clientes, Servicios, Usuarios
  */
 
 const API = window.PF?.API_URL || 'http://localhost:8000';
 
-let chartMaquinas = null;
-let chartEstados  = null;
-let chartVisitas  = null;
+/* ── Cache de mecánicos (para dropdowns) ───────────────────── */
+let _mecanicos = [];
 
-/* ── Paleta de colores para gráficos ──────────────────────── */
-const CHART_COLORS = ['#E55F0A','#1E2D3D','#2563EB','#16A34A','#D97706','#DC2626','#7C3AED','#0891B2','#BE185D'];
+/* ── Charts ─────────────────────────────────────────────────── */
+let chartEstadosOT = null;
+let chartMaquinas  = null;
+let chartVisitas   = null;
+const CHART_COLORS = ['#E55F0A','#1E2D3D','#2563EB','#16A34A','#D97706','#DC2626','#7C3AED','#0891B2'];
 
+/* ── Etiquetas de estado ─────────────────────────────────────── */
+const LABEL_ORDEN = {
+  recibido: 'Recibido', diagnosticando: 'Diagnosticando', reparando: 'Reparando',
+  listo: 'Listo', entregado: 'Entregado', cancelado: 'Cancelado',
+};
+const LABEL_TURNO = {
+  agendado: 'Agendado', confirmado: 'Confirmado', en_curso: 'En Curso',
+  completado: 'Completado', no_show: 'No Show',
+};
+const LABEL_ROL = { admin: 'Administrador', empleado: 'Empleado', cliente: 'Cliente' };
+
+/* ══════════════════════════════════════════════════════════════
+   INIT
+   ══════════════════════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', async () => {
-
-  /* 1 · Verificar autenticación */
   const token = localStorage.getItem('pf_token');
-  const user  = (() => {
-    try { return JSON.parse(localStorage.getItem('pf_user')); }
-    catch { return null; }
-  })();
-
-  const authLoader   = document.getElementById('authLoader');
-  const adminLayout  = document.getElementById('adminLayout');
+  const user  = (() => { try { return JSON.parse(localStorage.getItem('pf_user')); } catch { return null; } })();
 
   if (!token || !user || user.rol !== 'admin') {
     window.location.replace('login.html');
     return;
   }
 
-  /* Mostrar layout */
-  if (authLoader)  authLoader.setAttribute('hidden', '');
-  if (adminLayout) adminLayout.removeAttribute('hidden');
+  document.getElementById('authLoader')?.setAttribute('hidden', '');
+  document.getElementById('adminLayout')?.removeAttribute('hidden');
 
-  /* 2 · Rellenar info de usuario */
-  const initiales = `${user.nombre?.[0] || ''}${user.apellido?.[0] || ''}`.toUpperCase();
-  setText('userAvatar', initiales);
+  const ini = `${user.nombre?.[0] || ''}${user.apellido?.[0] || ''}`.toUpperCase();
+  setText('userAvatar', ini);
   setText('userName',   `${user.nombre} ${user.apellido}`);
   setText('userRole',   user.rol);
 
-  /* 3 · Fecha en topbar */
   const hoy = new Date().toLocaleDateString('es-AR', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
   setText('topbarDate', hoy.charAt(0).toUpperCase() + hoy.slice(1));
 
-  /* 4 · Configurar navegación del sidebar */
   initSidebar();
+  initTheme();
 
-  /* 5 · Logout */
   document.getElementById('logoutBtn')?.addEventListener('click', () => {
     localStorage.removeItem('pf_token');
     localStorage.removeItem('pf_user');
-    sessionStorage.removeItem('pf_session_token');
     window.location.replace('login.html');
   });
 
-  /* 6 · Toggle tema */
-  const themeToggle = document.getElementById('themeToggle');
-  const themeIcon   = document.getElementById('themeIcon');
-  if (themeToggle) {
-    const current = document.documentElement.getAttribute('data-theme') || 'light';
-    themeIcon.className = current === 'dark' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
-    themeToggle.addEventListener('click', () => {
-      const html = document.documentElement;
-      const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-      html.setAttribute('data-theme', next);
-      localStorage.setItem('pf_theme', next);
-      themeIcon.className = next === 'dark' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
-    });
-  }
+  /* Cargar mecánicos en cache (para dropdowns) */
+  await refreshMecanicosCache();
 
-  /* 7 · Cargar datos del dashboard */
-  await loadDashboard();
-  await loadContactos();
-  await loadServicios();
-  await loadAgenda();
-  await loadClientes();
+  /* Cargar todos los datos en paralelo */
+  await Promise.all([
+    loadDashboard(),
+    loadOrdenes(),
+    loadAgenda(),
+    loadMecanicos(),
+    loadInventario(),
+    loadClientes(),
+    loadServicios(),
+    loadUsuarios(),
+  ]);
 });
 
-/* ── Sidebar navigation ────────────────────────────────────── */
+/* ── Sidebar ─────────────────────────────────────────────────── */
 function initSidebar() {
-  const items    = document.querySelectorAll('.sidebar__item[data-panel]');
-  const panels   = document.querySelectorAll('.admin-panel');
-  const topTitle = document.getElementById('topbarTitle');
-
   const TITLES = {
-    dashboard: 'Dashboard',
-    agenda:    'Agenda de Turnos',
-    contactos: 'Órdenes de Trabajo',
-    clientes:  'Clientes',
-    servicios: 'Catálogo de Servicios',
-    analytics: 'Analítica de Visitas',
+    dashboard:  'Dashboard',
+    ordenes:    'Órdenes de Trabajo',
+    agenda:     'Agenda de Turnos',
+    mecanicos:  'Mecánicos',
+    inventario: 'Inventario de Repuestos',
+    clientes:   'Clientes',
+    servicios:  'Catálogo de Servicios',
+    usuarios:   'Usuarios del Sistema',
+    analytics:  'Analítica',
   };
+
+  const items  = document.querySelectorAll('.sidebar__item[data-panel]');
+  const panels = document.querySelectorAll('.admin-panel');
+  const title  = document.getElementById('topbarTitle');
 
   items.forEach(item => {
     item.addEventListener('click', () => {
@@ -100,617 +98,383 @@ function initSidebar() {
       panels.forEach(p => p.classList.remove('admin-panel--active'));
       item.classList.add('sidebar__item--active');
       document.getElementById(`panel-${panel}`)?.classList.add('admin-panel--active');
-      if (topTitle) topTitle.textContent = TITLES[panel] || panel;
+      if (title) title.textContent = TITLES[panel] || panel;
       if (panel === 'analytics') renderVisitasChart();
     });
   });
 
-  /* Sidebar mobile toggle */
   document.getElementById('sidebarToggle')?.addEventListener('click', () => {
     document.getElementById('sidebar')?.classList.toggle('sidebar--open');
   });
 }
 
-/* ── Dashboard ─────────────────────────────────────────────── */
+function initTheme() {
+  const toggle = document.getElementById('themeToggle');
+  const icon   = document.getElementById('themeIcon');
+  if (!toggle) return;
+  const saved = localStorage.getItem('pf_theme') || 'light';
+  document.documentElement.setAttribute('data-theme', saved);
+  icon.className = saved === 'dark' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
+  toggle.addEventListener('click', () => {
+    const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('pf_theme', next);
+    icon.className = next === 'dark' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
+  });
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  ['ordenModal','turnoModal','mecanicoModal','repuestoModal','stockModal',
+   'servicioModal','usuarioModal'].forEach(id => {
+    document.getElementById(id)?.classList.remove('modal--open');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════
+   DASHBOARD
+   ══════════════════════════════════════════════════════════════ */
 async function loadDashboard() {
   try {
-    const [statsRes, chartRes] = await Promise.all([
-      fetchAuth('/api/stats'),
-      fetchAuth('/api/stats/charts'),
-    ]);
+    const [sr, cr] = await Promise.all([fetchAuth('/api/stats'), fetchAuth('/api/stats/charts')]);
+    if (!sr.ok || !cr.ok) throw new Error();
+    const s = await sr.json();
+    const c = await cr.json();
 
-    if (!statsRes.ok || !chartRes.ok) throw new Error('Error al cargar stats');
+    setText('statOrdenesActivas',  s.ordenes_activas);
+    setText('statOrdenesHoy',      s.ordenes_hoy);
+    setText('statOrdenesListas',   s.ordenes_listas);
+    setText('statMecanicos',       s.mecanicos_activos);
+    setText('statTurnosPendientes',s.turnos_pendientes);
+    setText('statTurnosHoy',       s.turnos_hoy);
+    setText('statStockBajo',       s.repuestos_bajo_stock);
+    setText('statTotalOrdenes',    s.total_ordenes);
 
-    const stats  = await statsRes.json();
-    const charts = await chartRes.json();
+    setText('ordenesBadge', s.ordenes_activas);
+    setText('agendaBadge',  s.turnos_pendientes);
+    setText('stockBadge',   s.repuestos_bajo_stock);
 
-    /* Stat cards */
-    setText('statTotal',     stats.total_contactos);
-    setText('statNuevo',     stats.contactos_nuevo);
-    setText('statEnProceso', stats.contactos_en_proceso);
-    setText('statResuelto',  stats.contactos_resuelto);
-    setText('statServicios', stats.total_servicios);
-    setText('statVisitas',   stats.total_visitas);
-
-    /* Badges en sidebar */
-    setText('contactosBadge',  stats.contactos_nuevo);
-    setText('agendaBadge',     stats.turnos_pendientes);
-
-    /* Stat cards — turnos */
-    setText('statTurnos',          stats.total_turnos);
-    setText('statTurnosHoy',       stats.turnos_hoy);
-    setText('statTurnosPendientes', stats.turnos_pendientes);
-
-    /* Gráfico: por tipo de máquina */
-    renderBarChart('chartMaquinas', charts.maquinas.labels, charts.maquinas.data, 'Consultas');
-
-    /* Gráfico: por estado */
-    renderDoughnutChart('chartEstados', charts.estados.labels, charts.estados.data);
-
-    /* Guardar para el panel de analytics */
-    window._visitasData = charts.visitas;
-
-  } catch (err) {
-    console.error('Error en dashboard:', err);
-  }
+    renderDoughnutChart('chartEstadosOT', c.estados.labels, c.estados.data);
+    renderBarChart('chartMaquinas',       c.maquinas.labels, c.maquinas.data, 'Consultas');
+    window._visitasData = c.visitas;
+  } catch { /* dashboard no crítico */ }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   CONTACTOS
-   ═══════════════════════════════════════════════════════════════ */
-
-async function loadContactos(estado = '') {
-  const tbody   = document.getElementById('contactosBody');
-  const loader  = document.getElementById('contactosLoader');
+/* ══════════════════════════════════════════════════════════════
+   ÓRDENES DE TRABAJO
+   ══════════════════════════════════════════════════════════════ */
+async function loadOrdenes(estado = '') {
+  const tbody = document.getElementById('ordenesBody');
   if (!tbody) return;
-
-  loader?.classList.add('loader--visible');
-  tbody.innerHTML = '';
+  tbody.innerHTML = '<tr><td colspan="8" class="td-empty">Cargando...</td></tr>';
 
   try {
-    const url = estado ? `/api/contactos?estado=${estado}` : '/api/contactos';
+    const url = estado ? `/api/ordenes?estado=${estado}` : '/api/ordenes';
     const res = await fetchAuth(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const contactos = await res.json();
+    if (!res.ok) throw new Error();
+    const ordenes = await res.json();
 
-    if (contactos.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="td-empty">Sin contactos registrados.</td></tr>`;
+    if (!ordenes.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="td-empty">No hay órdenes. Creá la primera con "Nueva Orden".</td></tr>';
       return;
     }
 
-    contactos.forEach(c => {
+    tbody.innerHTML = '';
+    ordenes.forEach(o => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td class="td-muted">#${c.id}</td>
-        <td><strong>${c.nombre} ${c.apellido}</strong></td>
-        <td>${c.tipo_maquina}</td>
-        <td>${c.email}</td>
-        <td>${c.telefono}</td>
-        <td><span class="badge badge--${c.estado}">${c.estado.replace('_', ' ')}</span></td>
-        <td>${window.PF.formatDate(c.created_at)}</td>
-        <td class="td-actions">
-          <button type="button" class="btn btn--sm btn--view" data-id="${c.id}" data-action="ver" title="Ver detalle">
-            <i class="fa-solid fa-eye"></i>
-          </button>
-          <button type="button" class="btn btn--sm btn--delete" data-id="${c.id}" data-action="eliminar" title="Eliminar contacto">
-            <i class="fa-solid fa-trash"></i>
-          </button>
-          <select class="select-estado" data-id="${c.id}" data-action="estado" aria-label="Cambiar estado del contacto ${c.id}">
-            <option value="nuevo"      ${c.estado==='nuevo'      ? 'selected':''}>Nuevo</option>
-            <option value="en_proceso" ${c.estado==='en_proceso' ? 'selected':''}>En Proceso</option>
-            <option value="resuelto"   ${c.estado==='resuelto'   ? 'selected':''}>Resuelto</option>
-            <option value="cerrado"    ${c.estado==='cerrado'    ? 'selected':''}>Cerrado</option>
-          </select>
-        </td>`;
-      tr._contactoData = c;
-      tbody.appendChild(tr);
-    });
-
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" class="td-error">Error al cargar contactos. Verificá que el servidor esté activo.</td></tr>`;
-  } finally {
-    loader?.classList.remove('loader--visible');
-  }
-}
-
-/* Delegación de eventos: click y change en la tabla de contactos */
-document.getElementById('contactosBody')?.addEventListener('click',  handleContactoAction);
-document.getElementById('contactosBody')?.addEventListener('change', handleContactoAction);
-
-/* Re-asignar listeners cuando el tbody se re-renderiza (DOMContentLoaded los pisa) */
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('contactosBody')?.addEventListener('click',  handleContactoAction);
-  document.getElementById('contactosBody')?.addEventListener('change', handleContactoAction);
-});
-
-async function handleContactoAction(e) {
-  const btn = e.target.closest('[data-action]');
-  if (!btn) return;
-
-  const id     = btn.dataset.id;
-  const action = btn.dataset.action;
-
-  if (action === 'ver') {
-    const tr = btn.closest('tr');
-    openContactoModal(tr._contactoData);
-  }
-
-  if (action === 'estado') {
-    const nuevoEstado = btn.value;
-    try {
-      const res = await fetchAuth(`/api/contactos/${id}/estado`, 'PATCH', { estado: nuevoEstado });
-      if (!res.ok) throw new Error();
-      const badgeEl = btn.closest('tr')?.querySelector('.badge');
-      if (badgeEl) {
-        badgeEl.className = `badge badge--${nuevoEstado}`;
-        badgeEl.textContent = nuevoEstado.replace('_', ' ');
-      }
-    } catch {
-      alert('No se pudo actualizar el estado.');
-    }
-  }
-
-  if (action === 'eliminar') {
-    if (!confirm('¿Eliminar este contacto? Esta acción no se puede deshacer.')) return;
-    try {
-      const res = await fetchAuth(`/api/contactos/${id}`, 'DELETE');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      btn.closest('tr')?.remove();
-      /* Actualizar badge con nuevos */
-      const badge = document.getElementById('contactosBadge');
-      if (badge) badge.textContent = Math.max(0, parseInt(badge.textContent || '0') - 1);
-    } catch {
-      alert('No se pudo eliminar el contacto.');
-    }
-  }
-}
-
-/* Filtro de estado y recarga */
-document.getElementById('filtroEstado')?.addEventListener('change', (e) => {
-  loadContactos(e.target.value);
-});
-document.getElementById('recargarContactos')?.addEventListener('click', () => {
-  const estado = document.getElementById('filtroEstado')?.value || '';
-  loadContactos(estado);
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   SERVICIOS — CRUD completo
-   ═══════════════════════════════════════════════════════════════ */
-
-async function loadServicios() {
-  const tbody  = document.getElementById('serviciosBody');
-  const loader = document.getElementById('serviciosLoader');
-  if (!tbody) return;
-
-  loader?.classList.add('loader--visible');
-  tbody.innerHTML = '';
-
-  try {
-    /* Admin endpoint: incluye servicios inactivos */
-    const res      = await fetchAuth('/api/servicios/admin/all');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const servicios = await res.json();
-
-    if (servicios.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="td-empty">No hay servicios registrados.</td></tr>`;
-      return;
-    }
-
-    servicios.forEach(s => {
-      const tr = document.createElement('tr');
-      const categBadge = s.categoria === 'Jardinería' ? 'resuelto'
-                       : s.categoria === 'Energía'    ? 'nuevo'
-                       : 'en_proceso';
-      tr.innerHTML = `
-        <td class="td-muted">#${s.id}</td>
-        <td><strong>${s.nombre}</strong></td>
-        <td><span class="badge badge--${categBadge}">${s.categoria}</span></td>
-        <td>${window.PF.formatPrice(s.precio_base)}</td>
-        <td>${s.tiempo_estimado || '—'}</td>
         <td>
-          <span class="td-status ${s.disponible ? 'td-status--ok' : 'td-status--off'}">
-            <i class="fa-solid fa-${s.disponible ? 'check-circle' : 'times-circle'}"></i>
-            ${s.disponible ? 'Activo' : 'Inactivo'}
-          </span>
+          <span class="ot-numero">${o.numero || `#${o.id}`}</span>
         </td>
+        <td>
+          <strong>${o.cliente_nombre}</strong>
+          ${o.cliente_telefono ? `<div class="td-muted">${o.cliente_telefono}</div>` : ''}
+        </td>
+        <td title="${o.vehiculo}">${truncate(o.vehiculo, 32)}</td>
+        <td>${o.mecanico_nombre || '<span class="td-muted">Sin asignar</span>'}</td>
+        <td><span class="badge badge--prioridad-${o.prioridad}">${o.prioridad}</span></td>
+        <td>
+          <select class="select-estado" data-id="${o.id}" data-action="orden-estado" aria-label="Estado">
+            ${Object.entries(LABEL_ORDEN).map(([v,l]) =>
+              `<option value="${v}" ${o.estado===v?'selected':''}>${l}</option>`).join('')}
+          </select>
+        </td>
+        <td class="td-muted">${formatDateShort(o.created_at)}</td>
         <td class="td-actions">
-          <button type="button" class="btn btn--sm btn--view" data-id="${s.id}" data-action="svc-edit" title="Editar servicio">
+          <button class="btn btn--sm btn--view" data-id="${o.id}" data-action="orden-edit" title="Editar">
             <i class="fa-solid fa-pen"></i>
           </button>
-          <button type="button" class="btn btn--sm ${s.disponible ? 'btn--deactivate' : 'btn--activate'}"
-                  data-id="${s.id}" data-action="svc-toggle"
-                  title="${s.disponible ? 'Desactivar' : 'Activar'}">
-            <i class="fa-solid fa-${s.disponible ? 'eye-slash' : 'eye'}"></i>
-          </button>
-          <button type="button" class="btn btn--sm btn--delete" data-id="${s.id}" data-action="svc-delete" title="Eliminar servicio">
+          <button class="btn btn--sm btn--delete" data-id="${o.id}" data-action="orden-delete" title="Eliminar">
             <i class="fa-solid fa-trash"></i>
           </button>
         </td>`;
-      tr._servicioData = s;
+      tr._data = o;
       tbody.appendChild(tr);
     });
-
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="td-error">Error al cargar servicios. Verificá que el servidor esté activo.</td></tr>`;
-  } finally {
-    loader?.classList.remove('loader--visible');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="8" class="td-error">Error al cargar órdenes.</td></tr>';
   }
 }
 
-/* Delegación de eventos en tabla de servicios */
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('serviciosBody')?.addEventListener('click', handleServicioAction);
-
-  /* Botón Nuevo Servicio */
-  document.getElementById('nuevoServicioBtn')?.addEventListener('click', () => openServicioModal());
+  document.getElementById('ordenesBody')?.addEventListener('click',  handleOrdenAction);
+  document.getElementById('ordenesBody')?.addEventListener('change', handleOrdenAction);
+  document.getElementById('nuevaOrdenBtn')?.addEventListener('click', () => openOrdenModal());
+  document.getElementById('filtroOrdenEstado')?.addEventListener('change', e => loadOrdenes(e.target.value));
 });
 
-async function handleServicioAction(e) {
+async function handleOrdenAction(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
+  const id = parseInt(btn.dataset.id);
+  const tr = btn.closest('tr');
 
-  const id     = parseInt(btn.dataset.id);
-  const action = btn.dataset.action;
-  const tr     = btn.closest('tr');
+  if (btn.dataset.action === 'orden-edit') openOrdenModal(tr._data);
 
-  if (action === 'svc-edit') {
-    openServicioModal(tr._servicioData);
+  if (btn.dataset.action === 'orden-estado') {
+    try {
+      const r = await fetchAuth(`/api/ordenes/${id}/estado`, 'PATCH', { estado: btn.value });
+      if (!r.ok) throw new Error();
+      if (tr._data) tr._data.estado = btn.value;
+    } catch { alert('No se pudo actualizar el estado.'); }
   }
 
-  if (action === 'svc-toggle') {
-    const s = tr._servicioData;
-    const payload = {
-      nombre:          s.nombre,
-      categoria:       s.categoria,
-      descripcion:     s.descripcion,
-      precio_base:     s.precio_base,
-      imagen_path:     s.imagen_path,
-      disponible:      !s.disponible,
-      tiempo_estimado: s.tiempo_estimado,
-    };
+  if (btn.dataset.action === 'orden-delete') {
+    if (!confirm('¿Eliminar esta orden de trabajo? La acción no se puede deshacer.')) return;
     try {
-      const res = await fetchAuth(`/api/servicios/${id}`, 'PUT', payload);
-      if (!res.ok) throw new Error();
-      await loadServicios();
-    } catch {
-      alert('No se pudo actualizar el servicio.');
-    }
-  }
-
-  if (action === 'svc-delete') {
-    if (!confirm('¿Eliminar este servicio? Esta acción no se puede deshacer.')) return;
-    try {
-      const res = await fetchAuth(`/api/servicios/${id}`, 'DELETE');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const r = await fetchAuth(`/api/ordenes/${id}`, 'DELETE');
+      if (!r.ok) throw new Error();
       tr.remove();
-      /* Actualizar stat card */
-      const statEl = document.getElementById('statServicios');
-      if (statEl) statEl.textContent = Math.max(0, parseInt(statEl.textContent || '0') - 1);
-    } catch {
-      alert('No se pudo eliminar el servicio.');
-    }
+      loadDashboard();
+    } catch { alert('No se pudo eliminar la orden.'); }
   }
 }
 
-/* ── Modal crear / editar servicio ─────────────────────────── */
-function openServicioModal(servicio = null) {
-  const modal = document.getElementById('servicioModal');
-  const title = document.getElementById('servicioModalTitle');
-  const form  = document.getElementById('servicioForm');
+function openOrdenModal(orden = null) {
+  const modal = document.getElementById('ordenModal');
   if (!modal) return;
+  document.getElementById('ordenForm').reset();
+  populateMecanicoSelect('oMecanico');
 
-  form.reset();
-
-  if (servicio) {
-    title.textContent = 'Editar Servicio';
-    document.getElementById('servicioId').value        = servicio.id;
-    document.getElementById('svcNombre').value         = servicio.nombre;
-    document.getElementById('svcCategoria').value      = servicio.categoria;
-    document.getElementById('svcDescripcion').value    = servicio.descripcion;
-    document.getElementById('svcPrecio').value         = servicio.precio_base;
-    document.getElementById('svcTiempo').value         = servicio.tiempo_estimado || '';
-    document.getElementById('svcImagen').value         = servicio.imagen_path;
-    document.getElementById('svcDisponible').checked   = servicio.disponible;
+  if (orden) {
+    document.getElementById('ordenModalTitle').textContent = `Editar ${orden.numero || 'Orden'}`;
+    document.getElementById('ordenId').value       = orden.id;
+    document.getElementById('oNombre').value       = orden.cliente_nombre;
+    document.getElementById('oTelefono').value     = orden.cliente_telefono || '';
+    document.getElementById('oEmail').value        = orden.cliente_email    || '';
+    document.getElementById('oVehiculo').value     = orden.vehiculo;
+    document.getElementById('oProblema').value     = orden.descripcion_problema;
+    document.getElementById('oDiagnostico').value  = orden.diagnostico     || '';
+    document.getElementById('oTrabajo').value      = orden.trabajo_realizado || '';
+    document.getElementById('oMecanico').value     = orden.mecanico_id     || '';
+    document.getElementById('oPrioridad').value    = orden.prioridad       || 'normal';
+    document.getElementById('oEstado').value       = orden.estado          || 'recibido';
+    document.getElementById('oCostoMO').value      = orden.costo_mano_obra || 0;
+    document.getElementById('oCostoRep').value     = orden.costo_repuestos || 0;
+    document.getElementById('oFechaEst').value     = orden.fecha_estimada  || '';
+    document.getElementById('oNotas').value        = orden.notas_internas  || '';
+    updateOrdenTotal();
   } else {
-    title.textContent = 'Nuevo Servicio';
-    document.getElementById('servicioId').value      = '';
-    document.getElementById('svcDisponible').checked = true;
+    document.getElementById('ordenModalTitle').textContent = 'Nueva Orden de Trabajo';
+    document.getElementById('ordenId').value = '';
   }
-
   modal.classList.add('modal--open');
 }
 
-function closeServicioModal() {
-  document.getElementById('servicioModal')?.classList.remove('modal--open');
+function closeOrdenModal() { document.getElementById('ordenModal')?.classList.remove('modal--open'); }
+
+function updateOrdenTotal() {
+  const mo  = parseFloat(document.getElementById('oCostoMO')?.value)  || 0;
+  const rep = parseFloat(document.getElementById('oCostoRep')?.value) || 0;
+  const el  = document.getElementById('oTotal');
+  if (el) el.textContent = formatPrice(mo + rep);
 }
 
-/* Listeners del modal de servicio */
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('servicioModalClose')?.addEventListener('click', closeServicioModal);
-  document.getElementById('servicioModalCancel')?.addEventListener('click', closeServicioModal);
-  document.getElementById('servicioModalOverlay')?.addEventListener('click', closeServicioModal);
+  document.getElementById('ordenModalClose')?.addEventListener('click',   closeOrdenModal);
+  document.getElementById('ordenModalCancel')?.addEventListener('click',  closeOrdenModal);
+  document.getElementById('ordenModalOverlay')?.addEventListener('click', closeOrdenModal);
+  document.getElementById('oCostoMO')?.addEventListener('input',  updateOrdenTotal);
+  document.getElementById('oCostoRep')?.addEventListener('input', updateOrdenTotal);
 
-  document.getElementById('servicioForm')?.addEventListener('submit', async (e) => {
+  document.getElementById('ordenForm')?.addEventListener('submit', async e => {
     e.preventDefault();
+    const id  = document.getElementById('ordenId').value;
+    const btn = document.getElementById('ordenFormSubmit');
+    const txt = document.getElementById('ordenSubmitText');
 
-    const id  = document.getElementById('servicioId').value;
-    const btn = document.getElementById('servicioFormSubmit');
-    const txt = document.getElementById('servicioSubmitText');
-
-    const nombre = document.getElementById('svcNombre').value.trim();
-    const categ  = document.getElementById('svcCategoria').value;
-    const desc   = document.getElementById('svcDescripcion').value.trim();
-    const precio = parseFloat(document.getElementById('svcPrecio').value);
-    const imagen = document.getElementById('svcImagen').value.trim();
-
-    if (!nombre || !categ || !desc || isNaN(precio) || !imagen) {
-      alert('Completá todos los campos obligatorios (*).');
+    const nombre   = document.getElementById('oNombre').value.trim();
+    const vehiculo = document.getElementById('oVehiculo').value.trim();
+    const problema = document.getElementById('oProblema').value.trim();
+    if (!nombre || !vehiculo || !problema) {
+      alert('Completá los campos obligatorios: nombre, equipo y descripción del problema.');
       return;
     }
 
+    const mecId    = parseInt(document.getElementById('oMecanico').value) || null;
+    const mecNombre = mecId
+      ? (_mecanicos.find(m => m.id === mecId) ? `${_mecanicos.find(m => m.id === mecId).nombre} ${_mecanicos.find(m => m.id === mecId).apellido}` : null)
+      : null;
+
+    const mo  = parseFloat(document.getElementById('oCostoMO').value)  || 0;
+    const rep = parseFloat(document.getElementById('oCostoRep').value) || 0;
+
     const payload = {
-      nombre,
-      categoria:       categ,
-      descripcion:     desc,
-      precio_base:     precio,
-      tiempo_estimado: document.getElementById('svcTiempo').value.trim() || null,
-      imagen_path:     imagen,
-      disponible:      document.getElementById('svcDisponible').checked,
+      cliente_nombre:       nombre,
+      cliente_telefono:     document.getElementById('oTelefono').value.trim() || null,
+      cliente_email:        document.getElementById('oEmail').value.trim()    || null,
+      vehiculo,
+      descripcion_problema: problema,
+      diagnostico:          document.getElementById('oDiagnostico').value.trim() || null,
+      trabajo_realizado:    document.getElementById('oTrabajo').value.trim()     || null,
+      mecanico_id:          mecId,
+      mecanico_nombre:      mecNombre,
+      prioridad:            document.getElementById('oPrioridad').value,
+      estado:               document.getElementById('oEstado').value,
+      costo_mano_obra:      mo,
+      costo_repuestos:      rep,
+      costo_total:          mo + rep,
+      fecha_estimada:       document.getElementById('oFechaEst').value || null,
+      notas_internas:       document.getElementById('oNotas').value.trim() || null,
     };
 
-    btn.disabled   = true;
+    btn.disabled    = true;
     txt.textContent = 'Guardando...';
-
     try {
       const res = id
-        ? await fetchAuth(`/api/servicios/${id}`, 'PUT',  payload)
-        : await fetchAuth('/api/servicios',        'POST', payload);
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Error ${res.status}`);
-      }
-
-      closeServicioModal();
-      await loadServicios();
-
-      /* Si era nuevo, incrementar stat card */
-      if (!id) {
-        const statEl = document.getElementById('statServicios');
-        if (statEl) statEl.textContent = parseInt(statEl.textContent || '0') + 1;
-      }
-
+        ? await fetchAuth(`/api/ordenes/${id}`, 'PUT',  payload)
+        : await fetchAuth('/api/ordenes',        'POST', payload);
+      if (!res.ok) { const d = await res.json().catch(()=>({})); throw new Error(d.detail || `Error ${res.status}`); }
+      closeOrdenModal();
+      await Promise.all([loadOrdenes(document.getElementById('filtroOrdenEstado').value), loadDashboard()]);
     } catch (err) {
-      alert(`No se pudo guardar el servicio: ${err.message}`);
+      alert(`No se pudo guardar la orden: ${err.message}`);
     } finally {
       btn.disabled    = false;
-      txt.textContent = 'Guardar Servicio';
+      txt.textContent = 'Guardar Orden';
     }
   });
 });
 
-/* Cerrar modales con Escape */
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    closeContactoModal();
-    closeServicioModal();
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   MODAL DETALLE CONTACTO
-   ═══════════════════════════════════════════════════════════════ */
-
-function openContactoModal(contacto) {
-  const modal   = document.getElementById('contactoModal');
-  const content = document.getElementById('modalContent');
-  if (!modal || !content || !contacto) return;
-
-  content.innerHTML = `
-    <div class="modal-detail">
-      <div class="modal-detail__grid">
-        <div>
-          <span class="modal-label">Cliente</span>
-          <p class="modal-value">${contacto.nombre} ${contacto.apellido}</p>
-        </div>
-        <div>
-          <span class="modal-label">Máquina</span>
-          <p class="modal-value">${contacto.tipo_maquina}</p>
-        </div>
-        <div>
-          <span class="modal-label">Email</span>
-          <p class="modal-value">
-            <a href="mailto:${contacto.email}" class="modal-value--link">${contacto.email}</a>
-          </p>
-        </div>
-        <div>
-          <span class="modal-label">Teléfono</span>
-          <p class="modal-value">
-            <a href="tel:${contacto.telefono}" class="modal-value--link">${contacto.telefono}</a>
-          </p>
-        </div>
-      </div>
-      <div>
-        <span class="modal-label">Descripción del Problema</span>
-        <p class="modal-desc">${contacto.descripcion}</p>
-      </div>
-      <div class="modal-footer">
-        <span class="badge badge--${contacto.estado}">${contacto.estado.replace('_',' ')}</span>
-        <span class="modal-meta">${window.PF.formatDate(contacto.created_at)}</span>
-      </div>
-    </div>`;
-
-  modal.classList.add('modal--open');
-}
-
-function closeContactoModal() {
-  document.getElementById('contactoModal')?.classList.remove('modal--open');
-}
-
-document.getElementById('modalClose')?.addEventListener('click', closeContactoModal);
-document.getElementById('modalOverlay')?.addEventListener('click', closeContactoModal);
-
-/* ═══════════════════════════════════════════════════════════════
-   AGENDA — CRUD de turnos
-   ═══════════════════════════════════════════════════════════════ */
-
-const ESTADO_TURNO_LABEL = {
-  agendado:   'Agendado',
-  confirmado: 'Confirmado',
-  en_curso:   'En Curso',
-  completado: 'Completado',
-  no_show:    'No Show',
-};
-
+/* ══════════════════════════════════════════════════════════════
+   AGENDA DE TURNOS
+   ══════════════════════════════════════════════════════════════ */
 async function loadAgenda() {
-  const tbody  = document.getElementById('agendaBody');
-  const loader = document.getElementById('agendaLoader');
+  const tbody = document.getElementById('agendaBody');
   if (!tbody) return;
-
-  loader?.classList.add('loader--visible');
-  tbody.innerHTML = '';
+  tbody.innerHTML = '<tr><td colspan="7" class="td-empty">Cargando...</td></tr>';
 
   try {
     const res = await fetchAuth('/api/turnos');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error();
     const turnos = await res.json();
 
-    if (turnos.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="td-empty">No hay turnos registrados. Creá el primero con "Nuevo Turno".</td></tr>`;
+    if (!turnos.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="td-empty">No hay turnos. Agendá el primero.</td></tr>';
       return;
     }
-
+    tbody.innerHTML = '';
     turnos.forEach(t => {
       const tr = document.createElement('tr');
       const fechaFmt = t.fecha
         ? new Date(t.fecha + 'T00:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' })
         : '—';
       tr.innerHTML = `
-        <td>
-          <strong>${fechaFmt}</strong>
-          <div class="td-muted">${t.hora}</div>
-        </td>
-        <td>
-          <strong>${t.cliente_nombre}</strong>
-          ${t.cliente_telefono ? `<div class="td-muted">${t.cliente_telefono}</div>` : ''}
-        </td>
+        <td><strong>${fechaFmt}</strong><div class="td-muted">${t.hora}</div></td>
+        <td><strong>${t.cliente_nombre}</strong>${t.cliente_telefono ? `<div class="td-muted">${t.cliente_telefono}</div>` : ''}</td>
         <td>${t.vehiculo}</td>
         <td>${t.servicio}</td>
         <td>${t.mecanico || '<span class="td-muted">—</span>'}</td>
         <td>
-          <select class="select-estado" data-id="${t.id}" data-action="turno-estado" aria-label="Estado del turno ${t.id}">
-            ${Object.entries(ESTADO_TURNO_LABEL).map(([val, lbl]) =>
-              `<option value="${val}" ${t.estado === val ? 'selected' : ''}>${lbl}</option>`
-            ).join('')}
+          <select class="select-estado" data-id="${t.id}" data-action="turno-estado" aria-label="Estado turno">
+            ${Object.entries(LABEL_TURNO).map(([v,l]) =>
+              `<option value="${v}" ${t.estado===v?'selected':''}>${l}</option>`).join('')}
           </select>
         </td>
         <td class="td-actions">
-          <button type="button" class="btn btn--sm btn--view" data-id="${t.id}" data-action="turno-edit" title="Editar turno">
-            <i class="fa-solid fa-pen"></i>
-          </button>
-          <button type="button" class="btn btn--sm btn--delete" data-id="${t.id}" data-action="turno-delete" title="Eliminar turno">
-            <i class="fa-solid fa-trash"></i>
-          </button>
+          <button class="btn btn--sm btn--view" data-id="${t.id}" data-action="turno-edit" title="Editar"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn--sm btn--delete" data-id="${t.id}" data-action="turno-delete" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
         </td>`;
-      tr._turnoData = t;
+      tr._data = t;
       tbody.appendChild(tr);
     });
-
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="td-error">Error al cargar la agenda. Verificá que el servidor esté activo.</td></tr>`;
-  } finally {
-    loader?.classList.remove('loader--visible');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="7" class="td-error">Error al cargar agenda.</td></tr>';
   }
 }
 
-/* Delegación de eventos en tabla de agenda */
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('agendaBody')?.addEventListener('click',  handleAgendaAction);
   document.getElementById('agendaBody')?.addEventListener('change', handleAgendaAction);
   document.getElementById('nuevoTurnoBtn')?.addEventListener('click', () => openTurnoModal());
-  document.getElementById('recargarClientes')?.addEventListener('click', loadClientes);
 });
 
 async function handleAgendaAction(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
+  const id = parseInt(btn.dataset.id);
+  const tr = btn.closest('tr');
 
-  const id     = parseInt(btn.dataset.id);
-  const action = btn.dataset.action;
-  const tr     = btn.closest('tr');
+  if (btn.dataset.action === 'turno-edit') openTurnoModal(tr._data);
 
-  if (action === 'turno-edit') {
-    openTurnoModal(tr._turnoData);
+  if (btn.dataset.action === 'turno-estado') {
+    try {
+      const r = await fetchAuth(`/api/turnos/${id}/estado`, 'PATCH', { estado: btn.value });
+      if (!r.ok) throw new Error();
+      if (tr._data) tr._data.estado = btn.value;
+    } catch { alert('No se pudo actualizar el estado.'); }
   }
 
-  if (action === 'turno-estado') {
+  if (btn.dataset.action === 'turno-delete') {
+    if (!confirm('¿Eliminar este turno?')) return;
     try {
-      const res = await fetchAuth(`/api/turnos/${id}/estado`, 'PATCH', { estado: btn.value });
-      if (!res.ok) throw new Error();
-      if (tr._turnoData) tr._turnoData.estado = btn.value;
-    } catch {
-      alert('No se pudo actualizar el estado del turno.');
-    }
-  }
-
-  if (action === 'turno-delete') {
-    if (!confirm('¿Eliminar este turno? Esta acción no se puede deshacer.')) return;
-    try {
-      const res = await fetchAuth(`/api/turnos/${id}`, 'DELETE');
-      if (!res.ok) throw new Error();
+      const r = await fetchAuth(`/api/turnos/${id}`, 'DELETE');
+      if (!r.ok) throw new Error();
       tr.remove();
-      const badge = document.getElementById('agendaBadge');
-      if (badge) badge.textContent = Math.max(0, parseInt(badge.textContent || '0') - 1);
-    } catch {
-      alert('No se pudo eliminar el turno.');
-    }
+    } catch { alert('No se pudo eliminar el turno.'); }
   }
 }
 
-/* ── Modal crear / editar turno ────────────────────────────── */
 function openTurnoModal(turno = null) {
   const modal = document.getElementById('turnoModal');
-  const title = document.getElementById('turnoModalTitle');
-  const form  = document.getElementById('turnoForm');
   if (!modal) return;
-
-  form.reset();
+  document.getElementById('turnoForm').reset();
+  populateMecanicoSelect('tMecanico');
 
   if (turno) {
-    title.textContent = 'Editar Turno';
-    document.getElementById('turnoId').value  = turno.id;
-    document.getElementById('tNombre').value  = turno.cliente_nombre;
-    document.getElementById('tEmail').value   = turno.cliente_email    || '';
-    document.getElementById('tTelefono').value = turno.cliente_telefono || '';
-    document.getElementById('tVehiculo').value = turno.vehiculo;
-    document.getElementById('tServicio').value = turno.servicio;
-    document.getElementById('tFecha').value   = turno.fecha;
-    document.getElementById('tHora').value    = turno.hora;
-    document.getElementById('tMecanico').value = turno.mecanico || '';
-    document.getElementById('tNotas').value   = turno.notas    || '';
+    document.getElementById('turnoModalTitle').textContent = 'Editar Turno';
+    document.getElementById('turnoId').value      = turno.id;
+    document.getElementById('tNombre').value      = turno.cliente_nombre;
+    document.getElementById('tTelefono').value    = turno.cliente_telefono || '';
+    document.getElementById('tEmail').value       = turno.cliente_email    || '';
+    document.getElementById('tVehiculo').value    = turno.vehiculo;
+    document.getElementById('tServicio').value    = turno.servicio;
+    document.getElementById('tFecha').value       = turno.fecha;
+    document.getElementById('tHora').value        = turno.hora;
+    /* Seleccionar mecánico por nombre (turno guarda el nombre, no el ID) */
+    const mecSel = document.getElementById('tMecanico');
+    if (mecSel && turno.mecanico) {
+      const opt = Array.from(mecSel.options).find(o => o.text === turno.mecanico);
+      if (opt) mecSel.value = opt.value;
+    }
+    document.getElementById('tNotas').value = turno.notas || '';
   } else {
-    title.textContent = 'Nuevo Turno';
+    document.getElementById('turnoModalTitle').textContent = 'Nuevo Turno';
     document.getElementById('turnoId').value = '';
-    /* Precargar fecha de hoy */
-    document.getElementById('tFecha').value = new Date().toISOString().split('T')[0];
+    document.getElementById('tFecha').value  = new Date().toISOString().split('T')[0];
   }
-
   modal.classList.add('modal--open');
 }
 
-function closeTurnoModal() {
-  document.getElementById('turnoModal')?.classList.remove('modal--open');
-}
+function closeTurnoModal() { document.getElementById('turnoModal')?.classList.remove('modal--open'); }
 
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('turnoModalClose')?.addEventListener('click', closeTurnoModal);
-  document.getElementById('turnoModalCancel')?.addEventListener('click', closeTurnoModal);
+  document.getElementById('turnoModalClose')?.addEventListener('click',   closeTurnoModal);
+  document.getElementById('turnoModalCancel')?.addEventListener('click',  closeTurnoModal);
   document.getElementById('turnoModalOverlay')?.addEventListener('click', closeTurnoModal);
 
-  document.getElementById('turnoForm')?.addEventListener('submit', async (e) => {
+  document.getElementById('turnoForm')?.addEventListener('submit', async e => {
     e.preventDefault();
-
     const id  = document.getElementById('turnoId').value;
     const btn = document.getElementById('turnoFormSubmit');
     const txt = document.getElementById('turnoSubmitText');
@@ -720,42 +484,36 @@ document.addEventListener('DOMContentLoaded', () => {
     const servicio = document.getElementById('tServicio').value.trim();
     const fecha    = document.getElementById('tFecha').value;
     const hora     = document.getElementById('tHora').value;
-
     if (!nombre || !vehiculo || !servicio || !fecha || !hora) {
-      alert('Completá los campos obligatorios: nombre, vehículo, servicio, fecha y hora.');
-      return;
+      alert('Completá los campos obligatorios.'); return;
     }
+
+    /* Obtener nombre del mecánico del select */
+    const mecSel   = document.getElementById('tMecanico');
+    const mecNombre = mecSel.value
+      ? mecSel.options[mecSel.selectedIndex].text
+      : null;
 
     const payload = {
       cliente_nombre:   nombre,
-      cliente_email:    document.getElementById('tEmail').value.trim()    || null,
       cliente_telefono: document.getElementById('tTelefono').value.trim() || null,
-      vehiculo,
-      servicio,
-      fecha,
-      hora,
-      mecanico: document.getElementById('tMecanico').value.trim() || null,
-      notas:    document.getElementById('tNotas').value.trim()    || null,
+      cliente_email:    document.getElementById('tEmail').value.trim()    || null,
+      vehiculo, servicio, fecha, hora,
+      mecanico: mecNombre,
+      notas:    document.getElementById('tNotas').value.trim() || null,
     };
 
     btn.disabled    = true;
     txt.textContent = 'Guardando...';
-
     try {
       const res = id
         ? await fetchAuth(`/api/turnos/${id}`, 'PUT',  payload)
         : await fetchAuth('/api/turnos',        'POST', payload);
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `Error ${res.status}`);
-      }
-
+      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
       closeTurnoModal();
       await loadAgenda();
-
     } catch (err) {
-      alert(`No se pudo guardar el turno: ${err.message}`);
+      alert(`No se pudo guardar: ${err.message}`);
     } finally {
       btn.disabled    = false;
       txt.textContent = 'Guardar Turno';
@@ -763,28 +521,350 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   CLIENTES
-   ═══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   MECÁNICOS
+   ══════════════════════════════════════════════════════════════ */
+async function refreshMecanicosCache() {
+  try {
+    const res = await fetchAuth('/api/mecanicos');
+    if (res.ok) _mecanicos = await res.json();
+  } catch { /* silencioso */ }
+}
 
-async function loadClientes() {
-  const tbody  = document.getElementById('clientesBody');
-  const loader = document.getElementById('clientesLoader');
+function populateMecanicoSelect(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const current = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  _mecanicos.filter(m => m.activo).forEach(m => {
+    const opt = new Option(`${m.nombre} ${m.apellido}`, m.id);
+    sel.appendChild(opt);
+  });
+  if (current) sel.value = current;
+}
+
+async function loadMecanicos() {
+  const tbody = document.getElementById('mecanicosBody');
   if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Cargando...</td></tr>';
 
-  loader?.classList.add('loader--visible');
-  tbody.innerHTML = '';
+  try {
+    const res = await fetchAuth('/api/mecanicos');
+    if (!res.ok) throw new Error();
+    const mecs = await res.json();
+    _mecanicos  = mecs;
+
+    if (!mecs.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="td-empty">No hay mecánicos registrados.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    mecs.forEach(m => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${m.nombre} ${m.apellido}</strong></td>
+        <td>${m.telefono || '<span class="td-muted">—</span>'}</td>
+        <td>${m.email    || '<span class="td-muted">—</span>'}</td>
+        <td>${m.especialidad || '<span class="td-muted">—</span>'}</td>
+        <td><span class="badge ${m.activo ? 'badge--activo' : 'badge--inactivo'}">${m.activo ? 'Activo' : 'Inactivo'}</span></td>
+        <td class="td-actions">
+          <button class="btn btn--sm btn--view" data-id="${m.id}" data-action="mec-edit" title="Editar"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn--sm ${m.activo ? 'btn--deactivate' : 'btn--activate'}" data-id="${m.id}" data-action="mec-toggle" title="${m.activo ? 'Desactivar' : 'Activar'}">
+            <i class="fa-solid fa-${m.activo ? 'user-slash' : 'user-check'}"></i>
+          </button>
+          <button class="btn btn--sm btn--delete" data-id="${m.id}" data-action="mec-delete" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
+        </td>`;
+      tr._data = m;
+      tbody.appendChild(tr);
+    });
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="6" class="td-error">Error al cargar mecánicos.</td></tr>';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('mecanicosBody')?.addEventListener('click', handleMecanicoAction);
+  document.getElementById('nuevoMecanicoBtn')?.addEventListener('click', () => openMecanicoModal());
+});
+
+async function handleMecanicoAction(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const id = parseInt(btn.dataset.id);
+  const tr = btn.closest('tr');
+
+  if (btn.dataset.action === 'mec-edit') openMecanicoModal(tr._data);
+
+  if (btn.dataset.action === 'mec-toggle') {
+    try {
+      const r = await fetchAuth(`/api/mecanicos/${id}/toggle`, 'PATCH');
+      if (!r.ok) throw new Error();
+      await loadMecanicos();
+    } catch { alert('No se pudo cambiar el estado.'); }
+  }
+
+  if (btn.dataset.action === 'mec-delete') {
+    if (!confirm('¿Eliminar este mecánico?')) return;
+    try {
+      const r = await fetchAuth(`/api/mecanicos/${id}`, 'DELETE');
+      if (!r.ok) throw new Error();
+      tr.remove();
+      await refreshMecanicosCache();
+    } catch { alert('No se pudo eliminar.'); }
+  }
+}
+
+function openMecanicoModal(mec = null) {
+  const modal = document.getElementById('mecanicoModal');
+  if (!modal) return;
+  document.getElementById('mecanicoForm').reset();
+  if (mec) {
+    document.getElementById('mecanicoModalTitle').textContent = 'Editar Mecánico';
+    document.getElementById('mecanicoId').value    = mec.id;
+    document.getElementById('mNombre').value       = mec.nombre;
+    document.getElementById('mApellido').value     = mec.apellido;
+    document.getElementById('mTelefono').value     = mec.telefono     || '';
+    document.getElementById('mEmail').value        = mec.email        || '';
+    document.getElementById('mEspecialidad').value = mec.especialidad || '';
+    document.getElementById('mActivo').checked     = mec.activo;
+  } else {
+    document.getElementById('mecanicoModalTitle').textContent = 'Nuevo Mecánico';
+    document.getElementById('mecanicoId').value = '';
+  }
+  modal.classList.add('modal--open');
+}
+
+function closeMecanicoModal() { document.getElementById('mecanicoModal')?.classList.remove('modal--open'); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('mecanicoModalClose')?.addEventListener('click',   closeMecanicoModal);
+  document.getElementById('mecanicoModalCancel')?.addEventListener('click',  closeMecanicoModal);
+  document.getElementById('mecanicoModalOverlay')?.addEventListener('click', closeMecanicoModal);
+
+  document.getElementById('mecanicoForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const id  = document.getElementById('mecanicoId').value;
+    const btn = document.getElementById('mecanicoFormSubmit');
+    const txt = document.getElementById('mecanicoSubmitText');
+    const nombre   = document.getElementById('mNombre').value.trim();
+    const apellido = document.getElementById('mApellido').value.trim();
+    if (!nombre || !apellido) { alert('Nombre y apellido son requeridos.'); return; }
+
+    const payload = {
+      nombre, apellido,
+      telefono:     document.getElementById('mTelefono').value.trim()     || null,
+      email:        document.getElementById('mEmail').value.trim()        || null,
+      especialidad: document.getElementById('mEspecialidad').value.trim() || null,
+      activo:       document.getElementById('mActivo').checked,
+    };
+    btn.disabled = true; txt.textContent = 'Guardando...';
+    try {
+      const res = id
+        ? await fetchAuth(`/api/mecanicos/${id}`, 'PUT',  payload)
+        : await fetchAuth('/api/mecanicos',        'POST', payload);
+      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
+      closeMecanicoModal();
+      await loadMecanicos();
+      await loadDashboard();
+    } catch (err) {
+      alert(`No se pudo guardar: ${err.message}`);
+    } finally { btn.disabled = false; txt.textContent = 'Guardar'; }
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════
+   INVENTARIO / REPUESTOS
+   ══════════════════════════════════════════════════════════════ */
+let _stockRepuestoId = null;
+
+async function loadInventario() {
+  const tbody = document.getElementById('inventarioBody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="7" class="td-empty">Cargando...</td></tr>';
+
+  try {
+    const res = await fetchAuth('/api/inventario');
+    if (!res.ok) throw new Error();
+    const items = await res.json();
+
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="td-empty">No hay repuestos registrados.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    items.forEach(r => {
+      const stockClass = r.stock === 0 ? 'stock--critico' : r.stock <= r.stock_minimo ? 'stock--bajo' : 'stock--ok';
+      const stockLabel = r.stock === 0 ? 'Sin stock' : r.stock <= r.stock_minimo ? 'Stock bajo' : 'OK';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><span class="ot-numero">${r.codigo}</span></td>
+        <td>
+          <strong>${r.nombre}</strong>
+          ${r.categoria ? `<div class="td-muted">${r.categoria}</div>` : ''}
+          ${r.ubicacion ? `<div class="td-muted"><i class="fa-solid fa-location-dot"></i> ${r.ubicacion}</div>` : ''}
+        </td>
+        <td>
+          <span class="stock-badge ${stockClass}">${r.stock}</span>
+          <div class="td-muted">${stockLabel}</div>
+        </td>
+        <td class="td-muted">${r.stock_minimo}</td>
+        <td>${formatPrice(r.precio_venta)}</td>
+        <td>${r.proveedor || '<span class="td-muted">—</span>'}</td>
+        <td class="td-actions">
+          <button class="btn btn--sm btn--view" data-id="${r.id}" data-action="rep-edit" title="Editar"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn--sm btn--activate" data-id="${r.id}" data-action="rep-stock" title="Ajustar stock"><i class="fa-solid fa-arrows-up-down"></i></button>
+          <button class="btn btn--sm btn--delete" data-id="${r.id}" data-action="rep-delete" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
+        </td>`;
+      tr._data = r;
+      tbody.appendChild(tr);
+    });
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="7" class="td-error">Error al cargar inventario.</td></tr>';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('inventarioBody')?.addEventListener('click', handleInventarioAction);
+  document.getElementById('nuevoRepuestoBtn')?.addEventListener('click', () => openRepuestoModal());
+  document.getElementById('stockModalClose')?.addEventListener('click',  closeStockModal);
+  document.getElementById('stockModalCancel')?.addEventListener('click', closeStockModal);
+  document.getElementById('stockModalOverlay')?.addEventListener('click',closeStockModal);
+  document.getElementById('stockConfirmar')?.addEventListener('click', confirmAjusteStock);
+});
+
+async function handleInventarioAction(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const id = parseInt(btn.dataset.id);
+  const tr = btn.closest('tr');
+
+  if (btn.dataset.action === 'rep-edit') openRepuestoModal(tr._data);
+
+  if (btn.dataset.action === 'rep-stock') openStockModal(tr._data);
+
+  if (btn.dataset.action === 'rep-delete') {
+    if (!confirm('¿Eliminar este repuesto del inventario?')) return;
+    try {
+      const r = await fetchAuth(`/api/inventario/${id}`, 'DELETE');
+      if (!r.ok) throw new Error();
+      tr.remove();
+      loadDashboard();
+    } catch { alert('No se pudo eliminar.'); }
+  }
+}
+
+function openRepuestoModal(rep = null) {
+  const modal = document.getElementById('repuestoModal');
+  if (!modal) return;
+  document.getElementById('repuestoForm').reset();
+  if (rep) {
+    document.getElementById('repuestoModalTitle').textContent = 'Editar Repuesto';
+    document.getElementById('repuestoId').value     = rep.id;
+    document.getElementById('rCodigo').value        = rep.codigo;
+    document.getElementById('rNombre').value        = rep.nombre;
+    document.getElementById('rDescripcion').value   = rep.descripcion  || '';
+    document.getElementById('rCategoria').value     = rep.categoria    || '';
+    document.getElementById('rStock').value         = rep.stock;
+    document.getElementById('rStockMin').value      = rep.stock_minimo;
+    document.getElementById('rPrecioCosto').value   = rep.precio_costo;
+    document.getElementById('rPrecioVenta').value   = rep.precio_venta;
+    document.getElementById('rProveedor').value     = rep.proveedor    || '';
+    document.getElementById('rUbicacion').value     = rep.ubicacion    || '';
+  } else {
+    document.getElementById('repuestoModalTitle').textContent = 'Nuevo Repuesto';
+    document.getElementById('repuestoId').value = '';
+  }
+  modal.classList.add('modal--open');
+}
+
+function closeRepuestoModal() { document.getElementById('repuestoModal')?.classList.remove('modal--open'); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('repuestoModalClose')?.addEventListener('click',   closeRepuestoModal);
+  document.getElementById('repuestoModalCancel')?.addEventListener('click',  closeRepuestoModal);
+  document.getElementById('repuestoModalOverlay')?.addEventListener('click', closeRepuestoModal);
+
+  document.getElementById('repuestoForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const id  = document.getElementById('repuestoId').value;
+    const btn = document.getElementById('repuestoFormSubmit');
+    const txt = document.getElementById('repuestoSubmitText');
+    const codigo = document.getElementById('rCodigo').value.trim();
+    const nombre = document.getElementById('rNombre').value.trim();
+    if (!codigo || !nombre) { alert('Código y nombre son requeridos.'); return; }
+
+    const payload = {
+      codigo, nombre,
+      descripcion:  document.getElementById('rDescripcion').value.trim()  || null,
+      categoria:    document.getElementById('rCategoria').value.trim()     || null,
+      stock:        parseInt(document.getElementById('rStock').value)      || 0,
+      stock_minimo: parseInt(document.getElementById('rStockMin').value)   || 5,
+      precio_costo: parseFloat(document.getElementById('rPrecioCosto').value) || 0,
+      precio_venta: parseFloat(document.getElementById('rPrecioVenta').value) || 0,
+      proveedor:    document.getElementById('rProveedor').value.trim()     || null,
+      ubicacion:    document.getElementById('rUbicacion').value.trim()     || null,
+      activo:       true,
+    };
+    btn.disabled = true; txt.textContent = 'Guardando...';
+    try {
+      const res = id
+        ? await fetchAuth(`/api/inventario/${id}`, 'PUT',  payload)
+        : await fetchAuth('/api/inventario',        'POST', payload);
+      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
+      closeRepuestoModal();
+      await loadInventario();
+      await loadDashboard();
+    } catch (err) {
+      alert(`No se pudo guardar: ${err.message}`);
+    } finally { btn.disabled = false; txt.textContent = 'Guardar'; }
+  });
+});
+
+function openStockModal(rep) {
+  _stockRepuestoId = rep.id;
+  setText('stockRepuestoNombre', rep.nombre);
+  setText('stockActual', `${rep.stock} unidades`);
+  document.getElementById('stockCantidad').value = 1;
+  document.getElementById('stockTipo').value = 'entrada';
+  document.getElementById('stockModal')?.classList.add('modal--open');
+}
+
+function closeStockModal() {
+  document.getElementById('stockModal')?.classList.remove('modal--open');
+  _stockRepuestoId = null;
+}
+
+async function confirmAjusteStock() {
+  if (!_stockRepuestoId) return;
+  const tipo  = document.getElementById('stockTipo').value;
+  const cant  = parseInt(document.getElementById('stockCantidad').value) || 1;
+  const delta = tipo === 'entrada' ? cant : -cant;
+  try {
+    const r = await fetchAuth(`/api/inventario/${_stockRepuestoId}/stock`, 'PATCH', { delta });
+    if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.detail); }
+    closeStockModal();
+    await loadInventario();
+    await loadDashboard();
+  } catch (err) { alert(`Error al ajustar stock: ${err.message}`); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CLIENTES
+   ══════════════════════════════════════════════════════════════ */
+async function loadClientes() {
+  const tbody = document.getElementById('clientesBody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" class="td-empty">Cargando...</td></tr>';
 
   try {
     const res = await fetchAuth('/api/clientes');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error();
     const clientes = await res.json();
-
-    if (clientes.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="5" class="td-empty">No hay clientes registrados aún.</td></tr>`;
+    if (!clientes.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="td-empty">No hay clientes aún.</td></tr>';
       return;
     }
-
+    tbody.innerHTML = '';
     clientes.forEach(c => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
@@ -792,20 +872,305 @@ async function loadClientes() {
         <td><a href="mailto:${c.email}" class="modal-value--link">${c.email}</a></td>
         <td>${c.telefono || '<span class="td-muted">—</span>'}</td>
         <td><span class="badge badge--nuevo">${c.total_consultas}</span></td>
-        <td>${window.PF.formatDate(c.ultima_consulta)}</td>`;
+        <td class="td-muted">${window.PF?.formatDate ? window.PF.formatDate(c.ultima_consulta) : formatDateShort(c.ultima_consulta)}</td>`;
       tbody.appendChild(tr);
     });
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="5" class="td-error">Error al cargar clientes.</td></tr>';
+  }
+}
 
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="5" class="td-error">Error al cargar clientes.</td></tr>`;
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('recargarClientes')?.addEventListener('click', loadClientes);
+});
+
+/* ══════════════════════════════════════════════════════════════
+   SERVICIOS
+   ══════════════════════════════════════════════════════════════ */
+async function loadServicios() {
+  const tbody  = document.getElementById('serviciosBody');
+  const loader = document.getElementById('serviciosLoader');
+  if (!tbody) return;
+  loader?.classList.add('loader--visible');
+  tbody.innerHTML = '';
+
+  try {
+    const res = await fetchAuth('/api/servicios/admin/all');
+    if (!res.ok) throw new Error();
+    const svcs = await res.json();
+    if (!svcs.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="td-empty">No hay servicios.</td></tr>';
+      return;
+    }
+    svcs.forEach(s => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="td-muted">#${s.id}</td>
+        <td><strong>${s.nombre}</strong></td>
+        <td><span class="badge badge--nuevo">${s.categoria}</span></td>
+        <td>${formatPrice(s.precio_base)}</td>
+        <td class="td-muted">${s.tiempo_estimado || '—'}</td>
+        <td>
+          <span class="td-status ${s.disponible ? 'td-status--ok' : 'td-status--off'}">
+            <i class="fa-solid fa-${s.disponible ? 'check-circle' : 'circle-xmark'}"></i>
+            ${s.disponible ? 'Activo' : 'Inactivo'}
+          </span>
+        </td>
+        <td class="td-actions">
+          <button class="btn btn--sm btn--view" data-id="${s.id}" data-action="svc-edit" title="Editar"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn--sm ${s.disponible ? 'btn--deactivate' : 'btn--activate'}" data-id="${s.id}" data-action="svc-toggle" title="${s.disponible ? 'Desactivar' : 'Activar'}">
+            <i class="fa-solid fa-${s.disponible ? 'eye-slash' : 'eye'}"></i>
+          </button>
+          <button class="btn btn--sm btn--delete" data-id="${s.id}" data-action="svc-delete" title="Eliminar"><i class="fa-solid fa-trash"></i></button>
+        </td>`;
+      tr._data = s;
+      tbody.appendChild(tr);
+    });
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="7" class="td-error">Error al cargar servicios.</td></tr>';
   } finally {
     loader?.classList.remove('loader--visible');
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('serviciosBody')?.addEventListener('click', handleServicioAction);
+  document.getElementById('nuevoServicioBtn')?.addEventListener('click', () => openServicioModal());
+});
+
+async function handleServicioAction(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const id = parseInt(btn.dataset.id);
+  const tr = btn.closest('tr');
+
+  if (btn.dataset.action === 'svc-edit') openServicioModal(tr._data);
+
+  if (btn.dataset.action === 'svc-toggle') {
+    const s = tr._data;
+    const payload = { ...s, disponible: !s.disponible };
+    try {
+      const r = await fetchAuth(`/api/servicios/${id}`, 'PUT', payload);
+      if (!r.ok) throw new Error();
+      await loadServicios();
+    } catch { alert('No se pudo cambiar el estado.'); }
+  }
+
+  if (btn.dataset.action === 'svc-delete') {
+    if (!confirm('¿Eliminar este servicio del catálogo?')) return;
+    try {
+      const r = await fetchAuth(`/api/servicios/${id}`, 'DELETE');
+      if (!r.ok) throw new Error();
+      tr.remove();
+    } catch { alert('No se pudo eliminar.'); }
+  }
+}
+
+function openServicioModal(svc = null) {
+  const modal = document.getElementById('servicioModal');
+  if (!modal) return;
+  document.getElementById('servicioForm').reset();
+  if (svc) {
+    document.getElementById('servicioModalTitle').textContent = 'Editar Servicio';
+    document.getElementById('servicioId').value      = svc.id;
+    document.getElementById('svcNombre').value       = svc.nombre;
+    document.getElementById('svcCategoria').value    = svc.categoria;
+    document.getElementById('svcDescripcion').value  = svc.descripcion;
+    document.getElementById('svcPrecio').value       = svc.precio_base;
+    document.getElementById('svcTiempo').value       = svc.tiempo_estimado || '';
+    document.getElementById('svcImagen').value       = svc.imagen_path;
+    document.getElementById('svcDisponible').checked = svc.disponible;
+  } else {
+    document.getElementById('servicioModalTitle').textContent = 'Nuevo Servicio';
+    document.getElementById('servicioId').value      = '';
+    document.getElementById('svcDisponible').checked = true;
+  }
+  modal.classList.add('modal--open');
+}
+
+function closeServicioModal() { document.getElementById('servicioModal')?.classList.remove('modal--open'); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('servicioModalClose')?.addEventListener('click',   closeServicioModal);
+  document.getElementById('servicioModalCancel')?.addEventListener('click',  closeServicioModal);
+  document.getElementById('servicioModalOverlay')?.addEventListener('click', closeServicioModal);
+
+  document.getElementById('servicioForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const id   = document.getElementById('servicioId').value;
+    const btn  = document.getElementById('servicioFormSubmit');
+    const txt  = document.getElementById('servicioSubmitText');
+    const nom  = document.getElementById('svcNombre').value.trim();
+    const cat  = document.getElementById('svcCategoria').value;
+    const desc = document.getElementById('svcDescripcion').value.trim();
+    const prec = parseFloat(document.getElementById('svcPrecio').value);
+    const img  = document.getElementById('svcImagen').value.trim();
+    if (!nom || !cat || !desc || isNaN(prec) || !img) { alert('Completá todos los campos obligatorios (*)'); return; }
+
+    const payload = {
+      nombre: nom, categoria: cat, descripcion: desc, precio_base: prec,
+      imagen_path: img,
+      tiempo_estimado: document.getElementById('svcTiempo').value.trim() || null,
+      disponible: document.getElementById('svcDisponible').checked,
+    };
+    btn.disabled = true; txt.textContent = 'Guardando...';
+    try {
+      const res = id
+        ? await fetchAuth(`/api/servicios/${id}`, 'PUT',  payload)
+        : await fetchAuth('/api/servicios',        'POST', payload);
+      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
+      closeServicioModal();
+      await loadServicios();
+    } catch (err) {
+      alert(`No se pudo guardar: ${err.message}`);
+    } finally { btn.disabled = false; txt.textContent = 'Guardar Servicio'; }
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════
+   USUARIOS
+   ══════════════════════════════════════════════════════════════ */
+async function loadUsuarios() {
+  const tbody = document.getElementById('usuariosBody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" class="td-empty">Cargando...</td></tr>';
+
+  try {
+    const res = await fetchAuth('/api/users');
+    if (!res.ok) throw new Error();
+    const users = await res.json();
+    if (!users.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="td-empty">No hay usuarios.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = '';
+    users.forEach(u => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${u.nombre} ${u.apellido}</strong></td>
+        <td>${u.email}</td>
+        <td><span class="badge badge--rol-${u.rol}">${LABEL_ROL[u.rol] || u.rol}</span></td>
+        <td><span class="badge ${u.is_active ? 'badge--activo' : 'badge--inactivo'}">${u.is_active ? 'Activo' : 'Inactivo'}</span></td>
+        <td class="td-muted">${formatDateShort(u.created_at)}</td>
+        <td class="td-actions">
+          <button class="btn btn--sm btn--view" data-id="${u.id}" data-action="usr-edit" title="Editar"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn btn--sm ${u.is_active ? 'btn--deactivate' : 'btn--activate'}" data-id="${u.id}" data-action="usr-toggle" title="${u.is_active ? 'Desactivar' : 'Activar'}">
+            <i class="fa-solid fa-${u.is_active ? 'user-slash' : 'user-check'}"></i>
+          </button>
+        </td>`;
+      tr._data = u;
+      tbody.appendChild(tr);
+    });
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="6" class="td-error">Error al cargar usuarios.</td></tr>';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('usuariosBody')?.addEventListener('click', handleUsuarioAction);
+  document.getElementById('nuevoUsuarioBtn')?.addEventListener('click', () => openUsuarioModal());
+});
+
+async function handleUsuarioAction(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const id = parseInt(btn.dataset.id);
+  const tr = btn.closest('tr');
+
+  if (btn.dataset.action === 'usr-edit') openUsuarioModal(tr._data);
+
+  if (btn.dataset.action === 'usr-toggle') {
+    try {
+      const r = await fetchAuth(`/api/users/${id}/toggle`, 'PATCH');
+      if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.detail); }
+      await loadUsuarios();
+    } catch (err) { alert(err.message || 'No se pudo cambiar el estado.'); }
+  }
+}
+
+function openUsuarioModal(user = null) {
+  const modal = document.getElementById('usuarioModal');
+  if (!modal) return;
+  document.getElementById('usuarioForm').reset();
+  const hint = document.getElementById('uPasswordHint');
+  if (user) {
+    document.getElementById('usuarioModalTitle').textContent = 'Editar Usuario';
+    document.getElementById('usuarioId').value   = user.id;
+    document.getElementById('uNombre').value     = user.nombre;
+    document.getElementById('uApellido').value   = user.apellido;
+    document.getElementById('uEmail').value      = user.email;
+    document.getElementById('uRol').value        = user.rol;
+    if (hint) hint.textContent = '(opcional — dejar vacío para no cambiar)';
+  } else {
+    document.getElementById('usuarioModalTitle').textContent = 'Nuevo Usuario';
+    document.getElementById('usuarioId').value = '';
+    if (hint) hint.textContent = '(requerida)';
+  }
+  modal.classList.add('modal--open');
+}
+
+function closeUsuarioModal() { document.getElementById('usuarioModal')?.classList.remove('modal--open'); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('usuarioModalClose')?.addEventListener('click',   closeUsuarioModal);
+  document.getElementById('usuarioModalCancel')?.addEventListener('click',  closeUsuarioModal);
+  document.getElementById('usuarioModalOverlay')?.addEventListener('click', closeUsuarioModal);
+
+  document.getElementById('usuarioForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const id  = document.getElementById('usuarioId').value;
+    const btn = document.getElementById('usuarioFormSubmit');
+    const txt = document.getElementById('usuarioSubmitText');
+
+    const nombre   = document.getElementById('uNombre').value.trim();
+    const apellido = document.getElementById('uApellido').value.trim();
+    const email    = document.getElementById('uEmail').value.trim();
+    const rol      = document.getElementById('uRol').value;
+    const password = document.getElementById('uPassword').value;
+
+    if (!nombre || !apellido || !email || !rol) { alert('Completá todos los campos obligatorios.'); return; }
+    if (!id && !password) { alert('La contraseña es requerida para nuevos usuarios.'); return; }
+
+    const payload = { nombre, apellido, email, rol, password: password || undefined };
+    btn.disabled = true; txt.textContent = 'Guardando...';
+    try {
+      const res = id
+        ? await fetchAuth(`/api/users/${id}`, 'PUT', payload)
+        : await fetchAuth('/api/users/admin-create', 'POST', { ...payload, password: password });
+      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
+      closeUsuarioModal();
+      await loadUsuarios();
+    } catch (err) {
+      alert(`No se pudo guardar: ${err.message}`);
+    } finally { btn.disabled = false; txt.textContent = 'Guardar Usuario'; }
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════
    CHARTS
-   ═══════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════════ */
+function renderDoughnutChart(canvasId, labels, data) {
+  const ctx = document.getElementById(canvasId)?.getContext('2d');
+  if (!ctx) return;
+  const ESTADO_OT_COLORS = {
+    recibido: '#2563EB', diagnosticando: '#7C3AED', reparando: '#D97706',
+    listo: '#16A34A', entregado: '#6B7280', cancelado: '#DC2626',
+  };
+  const colors = labels.map(l => ESTADO_OT_COLORS[l] || CHART_COLORS[0]);
+  if (chartEstadosOT) chartEstadosOT.destroy();
+  chartEstadosOT = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels.map(l => LABEL_ORDEN[l] || l),
+      datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }],
+    },
+    options: {
+      responsive: true,
+      cutout: '65%',
+      plugins: { legend: { position: 'bottom', labels: { padding: 14, font: { size: 12 } } } },
+    },
+  });
+}
 
 function renderBarChart(canvasId, labels, data, label) {
   const ctx = document.getElementById(canvasId)?.getContext('2d');
@@ -814,10 +1179,7 @@ function renderBarChart(canvasId, labels, data, label) {
   if (chartMaquinas) chartMaquinas.destroy();
   chartMaquinas = new Chart(ctx, {
     type: 'bar',
-    data: {
-      labels,
-      datasets: [{ label, data, backgroundColor: colors, borderRadius: 6, borderSkipped: false }],
-    },
+    data: { labels, datasets: [{ label, data, backgroundColor: colors, borderRadius: 6, borderSkipped: false }] },
     options: {
       responsive: true,
       plugins: { legend: { display: false } },
@@ -826,29 +1188,9 @@ function renderBarChart(canvasId, labels, data, label) {
   });
 }
 
-function renderDoughnutChart(canvasId, labels, data) {
-  const ctx = document.getElementById(canvasId)?.getContext('2d');
-  if (!ctx) return;
-  const ESTADO_COLORS = { nuevo: '#2563EB', en_proceso: '#D97706', resuelto: '#16A34A', cerrado: '#CBD5E0' };
-  const colors = labels.map(l => ESTADO_COLORS[l] || '#E55F0A');
-  if (chartEstados) chartEstados.destroy();
-  chartEstados = new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: labels.map(l => l.replace('_', ' ')),
-      datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }],
-    },
-    options: {
-      responsive: true,
-      cutout: '65%',
-      plugins: { legend: { position: 'bottom', labels: { padding: 16, font: { size: 12 } } } },
-    },
-  });
-}
-
 function renderVisitasChart() {
   const v = window._visitasData;
-  if (!v || v.labels.length === 0) return;
+  if (!v || !v.labels.length) return;
   const ctx = document.getElementById('chartVisitas')?.getContext('2d');
   if (!ctx) return;
   if (chartVisitas) chartVisitas.destroy();
@@ -857,14 +1199,9 @@ function renderVisitasChart() {
     data: {
       labels: v.labels,
       datasets: [{
-        label: 'Visitas',
-        data: v.data,
-        fill: true,
-        backgroundColor: 'rgba(229,95,10,0.1)',
-        borderColor: '#E55F0A',
-        tension: 0.4,
-        pointBackgroundColor: '#E55F0A',
-        pointRadius: 4,
+        label: 'Visitas', data: v.data, fill: true,
+        backgroundColor: 'rgba(229,95,10,0.1)', borderColor: '#E55F0A',
+        tension: 0.4, pointBackgroundColor: '#E55F0A', pointRadius: 4,
       }],
     },
     options: {
@@ -875,10 +1212,9 @@ function renderVisitasChart() {
   });
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    HELPERS
-   ═══════════════════════════════════════════════════════════════ */
-
+   ══════════════════════════════════════════════════════════════ */
 function setText(id, val) {
   const el = document.getElementById(id);
   if (el) el.textContent = val ?? '—';
@@ -894,4 +1230,21 @@ function fetchAuth(path, method = 'GET', body = null) {
   };
   if (body) opts.body = JSON.stringify(body);
   return fetch(`${API}${path}`, opts);
+}
+
+function formatPrice(n) {
+  if (n == null || isNaN(n)) return '—';
+  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(n);
+}
+
+function formatDateShort(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' });
+  } catch { return '—'; }
+}
+
+function truncate(str, len) {
+  if (!str) return '—';
+  return str.length > len ? str.slice(0, len) + '…' : str;
 }

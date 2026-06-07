@@ -406,6 +406,111 @@
   border-top: 1px solid var(--color-gray-100);
 }
 
+/* ── BADGES DE ESTADO — ÓRDENES DE TRABAJO ──────────────────── */
+.badge--recibido      { background-color: #DBEAFE; color: #1D4ED8; }
+.badge--diagnosticando{ background-color: #EDE9FE; color: #5B21B6; }
+.badge--reparando     { background-color: #FEF9C3; color: #92400E; }
+.badge--listo         { background-color: #DCFCE7; color: #15803D; font-weight: 700; }
+.badge--entregado     { background-color: var(--color-gray-100); color: var(--color-gray-500); }
+.badge--cancelado     { background-color: #FEE2E2; color: var(--color-error); }
+
+/* ── BADGES DE PRIORIDAD ─────────────────────────────────────── */
+.badge--prioridad-baja    { background-color: var(--color-gray-100); color: var(--color-gray-500); padding: 2px 8px; border-radius: var(--radius-full); font-size: var(--fs-xs); font-weight: 600; }
+.badge--prioridad-normal  { background-color: #DBEAFE; color: #1D4ED8;  padding: 2px 8px; border-radius: var(--radius-full); font-size: var(--fs-xs); font-weight: 600; }
+.badge--prioridad-alta    { background-color: #FEF9C3; color: #92400E;  padding: 2px 8px; border-radius: var(--radius-full); font-size: var(--fs-xs); font-weight: 700; }
+.badge--prioridad-urgente { background-color: #FEE2E2; color: var(--color-error); padding: 2px 8px; border-radius: var(--radius-full); font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; }
+
+/* ── BADGES DE ROL ───────────────────────────────────────────── */
+.badge--rol-admin    { background-color: #FEF3C7; color: #92400E; }
+.badge--rol-empleado { background-color: #DBEAFE; color: #1D4ED8; }
+.badge--rol-cliente  { background-color: var(--color-gray-100); color: var(--color-gray-500); }
+
+/* ── BADGES ACTIVO / INACTIVO ────────────────────────────────── */
+.badge--activo   { background-color: #DCFCE7; color: #15803D; }
+.badge--inactivo { background-color: #FEE2E2; color: var(--color-error); }
+
+/* ── NÚMERO DE OT ────────────────────────────────────────────── */
+.ot-numero {
+  font-family: var(--font-heading);
+  font-size: var(--fs-sm);
+  color: var(--color-accent);
+  letter-spacing: 0.05em;
+}
+
+/* ── STOCK BADGE ─────────────────────────────────────────────── */
+.stock-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.stock--ok      { background-color: #DCFCE7; color: #15803D; }
+.stock--bajo    { background-color: #FEF9C3; color: #92400E; }
+.stock--critico { background-color: #FEE2E2; color: var(--color-error); }
+
+/* ── BADGE WARN EN SIDEBAR ───────────────────────────────────── */
+.sidebar__item-badge--warn {
+  background-color: #D97706;
+}
+
+/* ── MODAL EXTRA GRANDE ──────────────────────────────────────── */
+.modal__content--xl { max-width: 780px; }
+.modal__content--sm { max-width: 440px; }
+
+/* ── SECCIONES DE FORMULARIO ─────────────────────────────────── */
+.form__section {
+  border: 1px solid var(--color-gray-100);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5);
+  margin-bottom: var(--sp-5);
+}
+.form__section-title {
+  font-family: var(--font-heading);
+  font-size: var(--fs-lg);
+  letter-spacing: 0.03em;
+  color: var(--color-dark);
+  margin-bottom: var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.form__section-title i { color: var(--color-accent); }
+
+/* Tres columnas en formulario */
+.form__row--3 { grid-template-columns: 1fr 1fr 1fr; }
+
+/* Campo total de costos (read-only) */
+.form__total {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-3);
+  background-color: var(--color-gray-100);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  font-size: var(--fs-base);
+  color: var(--color-dark);
+}
+
+/* Hint en labels de formulario */
+.form__hint { font-size: var(--fs-xs); color: var(--color-gray-500); font-weight: 400; }
+
+/* ── AJUSTE DE STOCK MODAL ───────────────────────────────────── */
+.stock-adjust { display: grid; gap: var(--sp-4); }
+.stock-adjust__info { display: grid; gap: var(--sp-2); }
+
+/* ── TOPBAR MENU BTN ─────────────────────────────────────────── */
+.topbar__menu-btn {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  color: var(--color-gray-700);
+}
+
 /* ── RESPONSIVE ADMIN ────────────────────────────────────────── */
 @media (max-width: 1024px) {
   .sidebar { transform: translateX(-100%); }
