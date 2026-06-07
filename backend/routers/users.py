@@ -33,16 +33,12 @@ def register(data: schemas.UsuarioCreate, db: Session = Depends(get_db)):
     if db.query(models.Usuario).filter(models.Usuario.email == data.email).first():
         raise HTTPException(status_code=400, detail="El email ya está registrado")
 
-    roles_validos = ["admin", "empleado", "cliente"]
-    if data.rol not in roles_validos:
-        raise HTTPException(status_code=400, detail=f"Rol inválido. Use: {roles_validos}")
-
     db_user = models.Usuario(
         nombre=data.nombre,
         apellido=data.apellido,
         email=data.email,
         password_hash=hash_password(data.password),
-        rol=data.rol,
+        rol="cliente",  # El registro público siempre crea cuentas de cliente
     )
     db.add(db_user)
     db.commit()

@@ -224,9 +224,16 @@
 
         <div class="data-table-wrapper">
           <div class="data-table-header">
-            <div class="data-table-header__title">Catálogo de Servicios</div>
-            <div class="loader loader--inline" id="serviciosLoader">
-              <div class="loader__spinner loader__spinner--sm"></div>
+            <div>
+              <div class="data-table-header__title">Catálogo de Servicios</div>
+            </div>
+            <div class="data-table-actions">
+              <div class="loader loader--inline" id="serviciosLoader">
+                <div class="loader__spinner loader__spinner--sm"></div>
+              </div>
+              <button type="button" class="btn btn--primary btn--sm" id="nuevoServicioBtn">
+                <i class="fa-solid fa-plus"></i> Nuevo Servicio
+              </button>
             </div>
           </div>
 
@@ -239,13 +246,73 @@
                   <th>Categoría</th>
                   <th>Precio Base</th>
                   <th>Tiempo Est.</th>
-                  <th>Disponible</th>
+                  <th>Estado</th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody id="serviciosBody">
                 <!-- Cargado dinámicamente -->
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <!-- Modal crear / editar servicio -->
+        <div class="modal" id="servicioModal" role="dialog" aria-modal="true" aria-labelledby="servicioModalTitle">
+          <div class="modal__overlay" id="servicioModalOverlay"></div>
+          <div class="modal__content modal__content--lg">
+            <button type="button" class="modal__close" id="servicioModalClose" aria-label="Cerrar">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+            <h3 class="modal__title" id="servicioModalTitle">Nuevo Servicio</h3>
+            <form id="servicioForm" novalidate>
+              <input type="hidden" id="servicioId" />
+              <div class="form__group">
+                <label class="form__label" for="svcNombre">Nombre del servicio <span aria-hidden="true">*</span></label>
+                <input type="text" class="form__input" id="svcNombre" required placeholder="ej: Reparación de Desmalezadoras" />
+              </div>
+              <div class="form__row">
+                <div class="form__group">
+                  <label class="form__label" for="svcCategoria">Categoría <span aria-hidden="true">*</span></label>
+                  <select class="form__input" id="svcCategoria" required>
+                    <option value="">Seleccionar...</option>
+                    <option value="Jardinería">Jardinería</option>
+                    <option value="Forestal">Forestal</option>
+                    <option value="Agricultura">Agricultura</option>
+                    <option value="Energía">Energía</option>
+                    <option value="Agua">Agua</option>
+                  </select>
+                </div>
+                <div class="form__group">
+                  <label class="form__label" for="svcPrecio">Precio base ($) <span aria-hidden="true">*</span></label>
+                  <input type="number" class="form__input" id="svcPrecio" min="0" step="100" required placeholder="ej: 2500" />
+                </div>
+              </div>
+              <div class="form__group">
+                <label class="form__label" for="svcDescripcion">Descripción <span aria-hidden="true">*</span></label>
+                <textarea class="form__input form__textarea" id="svcDescripcion" rows="3" required placeholder="Describí el servicio, qué incluye y para qué tipo de máquina..."></textarea>
+              </div>
+              <div class="form__row">
+                <div class="form__group">
+                  <label class="form__label" for="svcTiempo">Tiempo estimado</label>
+                  <input type="text" class="form__input" id="svcTiempo" placeholder="ej: 1-2 días hábiles" />
+                </div>
+                <div class="form__group">
+                  <label class="form__label" for="svcImagen">Ruta de imagen <span aria-hidden="true">*</span></label>
+                  <input type="text" class="form__input" id="svcImagen" required placeholder="/assets/images/productos/nombre.webp" />
+                </div>
+              </div>
+              <div class="form__group form__group--check">
+                <input type="checkbox" id="svcDisponible" checked />
+                <label for="svcDisponible">Servicio disponible en el catálogo público</label>
+              </div>
+              <div class="form__actions">
+                <button type="button" class="btn btn--secondary" id="servicioModalCancel">Cancelar</button>
+                <button type="submit" class="btn btn--primary" id="servicioFormSubmit">
+                  <span id="servicioSubmitText">Guardar Servicio</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       </section>

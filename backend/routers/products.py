@@ -67,3 +67,12 @@ def eliminar_servicio(
     db.delete(s)
     db.commit()
     return {"detail": "Servicio eliminado"}
+
+
+@router.get("/admin/all", response_model=list[schemas.ServicioResponse], summary="Listar todos los servicios incluyendo inactivos (admin)")
+def listar_todos_servicios(
+    db: Session = Depends(get_db),
+    _: models.Usuario = Depends(require_admin),
+):
+    """Devuelve todos los servicios sin filtrar por disponibilidad. Solo para el panel admin."""
+    return db.query(models.Servicio).order_by(models.Servicio.nombre).all()
