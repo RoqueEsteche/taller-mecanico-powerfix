@@ -1,0 +1,67 @@
+# netlify.toml — Configuración de despliegue en Netlify
+#
+# Arquitectura:
+#   - Frontend React (Vite) → publicado en dist/ como sitio estático
+#   - Backend Express.js   → envuelto en netlify/functions/api.js (serverless)
+#   - Redireccionamiento:  → /api/* se redirige a la función serverless
+#   - SPA routing:         → Todas las rutas no coincidentes sirven index.html
+
+[build]
+  # Comando que construye el frontend (genera dist/)
+  command = "npm install --include=dev && npm run build"
+  # Directorio que Netlify publica como CDN estático
+  publish = "dist"
+  # Directorio donde Netlify busca las Functions serverless
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# ── Redireccionamiento: peticiones al API → Netlify Function ─────────────────
+#
+# Cualquier request a /api/* se redirige internamente a la función `api`.
+# Netlify preserva el path original en event.path para que Express lo use.
+# force = true → tiene precedencia sobre archivos estáticos con el mismo nombre.
+[[redirects]]
+  from   = "/api/*"
+  to     = "/.netlify/functions/api"
+  status = 200
+  force  = true
+
+# Documentación Swagger (generada por el servidor, no por Vite)
+[[redirects]]
+  from   = "/docs"
+  to     = "/.netlify/functions/api"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/docs/*"
+  to     = "/.netlify/functions/api"
+  status = 200
+  force  = true
+
+# ── SPA Routing ──────────────────────────────────────────────────────────────
+#
+# React maneja el routing en el navegador. Si el usuario recarga /seguimiento
+# o cualquier ruta directamente, Netlify debe servir index.html para que
+# React Router pueda manejarla (no devolver 404).
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+# ── Headers de seguridad ─────────────────────────────────────────────────────
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options        = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy        = "strict-origin-when-cross-origin"
+    Permissions-Policy     = "camera=(), microphone=(), geolocation=()"
+
+# Assets estáticos: caché de 1 año (immutable porque Vite genera hashes)
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

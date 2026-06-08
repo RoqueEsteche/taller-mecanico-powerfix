@@ -17,8 +17,10 @@ const corsOrigins = process.env.CORS_ORIGIN
   : null;
 const nativeAppOrigins = ['http://localhost', 'https://localhost', 'capacitor://localhost'];
 
-if (isProduction && (!corsOrigins || corsOrigins.length === 0)) {
-  throw new Error('CORS_ORIGIN es obligatorio en producción.');
+// En Netlify, el frontend y las Functions comparten dominio → CORS_ORIGIN opcional
+const isNetlify = Boolean(process.env.NETLIFY);
+if (isProduction && !isNetlify && (!corsOrigins || corsOrigins.length === 0)) {
+  throw new Error('CORS_ORIGIN es obligatorio en producción (salvo despliegue en Netlify).');
 }
 
 const allowedOrigins = new Set([...(corsOrigins || []), ...nativeAppOrigins]);
@@ -2377,20 +2379,29 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ message: error instanceof Error ? error.message : 'Internal server error' });
 });
 
-let server;
+// ── Exportaciones para Netlify Functions (serverless) ─────────────────────
+export { app, ensureCatalogTables };
 
-ensureCatalogTables()
-  .then(() => {
-    server = app.listen(port, () => {
-      console.log(`API PostgreSQL disponible en puerto ${port}`);
+// Solo inicia el servidor HTTP cuando se ejecuta directamente (no desde Netlify Functions)
+const __filename_main = fileURLToPath(import.meta.url);
+const isMainModule = process.argv[1] === __filename_main;
+
+if (isMainModule) {
+  let server;
+
+  ensureCatalogTables()
+    .then(() => {
+      server = app.listen(port, () => {
+        console.log(`API PostgreSQL disponible en puerto ${port}`);
+      });
+    })
+    .catch((error) => {
+      console.error('No se pudieron inicializar tablas de catálogos:', error instanceof Error ? error.message : error);
+      process.exit(1);
     });
-  })
-  .catch((error) => {
-    console.error('No se pudieron inicializar tablas de catálogos:', error instanceof Error ? error.message : error);
-    process.exit(1);
-  });
 
-process.on('SIGTERM', async () => {
-  if (server) server.close();
-  await pool.end();
-});
+  process.on('SIGTERM', async () => {
+    if (server) server.close();
+    await pool.end();
+  });
+}
