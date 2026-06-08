@@ -13,7 +13,7 @@
  */
 
 import serverless from 'serverless-http';
-import { app, ensureCatalogTables } from '../../server/index.js';
+import { app, ensureCatalogTables } from '../../backend/server/index.js';
 
 // Se inicializa una sola vez por instancia (warm Lambda/container)
 let serverlessHandler = null;

@@ -6,6 +6,7 @@ import {defineConfig, loadEnv} from 'vite';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
+    root: 'frontend',
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
@@ -19,19 +20,21 @@ export default defineConfig(({mode}) => {
         },
         {
           find: '@',
-          replacement: path.resolve(__dirname, '.'),
+          replacement: path.resolve(__dirname, 'frontend'),
         },
         {
           find: 'framer-motion',
-          replacement: path.resolve(__dirname, 'src/lib/motion.tsx'),
+          replacement: path.resolve(__dirname, 'frontend/src/lib/motion.tsx'),
         },
         {
           find: 'motion/react',
-          replacement: path.resolve(__dirname, 'src/lib/motion.tsx'),
+          replacement: path.resolve(__dirname, 'frontend/src/lib/motion.tsx'),
         },
       ],
     },
     build: {
+      outDir: path.resolve(__dirname, 'dist'),
+      emptyOutDir: true,
       rollupOptions: {
         output: {
           manualChunks: {

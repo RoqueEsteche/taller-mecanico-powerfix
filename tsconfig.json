@@ -17,10 +17,10 @@
     "jsx": "react-jsx",
     "paths": {
       "framer-motion": [
-        "./src/lib/motion.tsx"
+        "./frontend/src/lib/motion.tsx"
       ],
       "motion/react": [
-        "./src/lib/motion.tsx"
+        "./frontend/src/lib/motion.tsx"
       ],
       "@/*": [
         "./*"
