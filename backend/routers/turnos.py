@@ -21,7 +21,7 @@ def crear_turno(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_admin),
 ):
-    turno = models.Turno(**data.dict(), estado="agendado")
+    turno = models.Turno(**data.model_dump(), estado="agendado")
     db.add(turno)
     db.commit()
     db.refresh(turno)
@@ -56,7 +56,7 @@ def editar_turno(
     t = db.query(models.Turno).filter(models.Turno.id == turno_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Turno no encontrado")
-    for k, v in data.dict().items():
+    for k, v in data.model_dump().items():
         setattr(t, k, v)
     db.commit()
     db.refresh(t)

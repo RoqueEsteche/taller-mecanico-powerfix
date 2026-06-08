@@ -4,12 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Panel Interno — PowerFix</title>
+  <meta name="description" content="Panel de administración del sistema PowerFix. Gestión de órdenes, turnos, mecánicos, inventario y usuarios del taller mecánico." />
   <meta name="robots" content="noindex, nofollow" />
+  <meta property="og:title" content="Panel Interno — PowerFix" />
+  <meta property="og:description" content="Sistema de gestión integral para taller mecánico especializado." />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="PowerFix" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>" />
   <link rel="stylesheet" href="css/styles.css" />
   <link rel="stylesheet" href="css/admin.css" />
 </head>
@@ -845,6 +851,22 @@
 
     </div><!-- /admin-main -->
   </div><!-- /admin-layout -->
+
+  <!-- Toast & Confirm Modal -->
+  <div class="toast" id="toast" role="alert" aria-live="polite"></div>
+
+  <div class="confirm-modal" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="confirm-modal__overlay"></div>
+    <div class="confirm-modal__content">
+      <div class="confirm-modal__icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+      <div class="confirm-modal__title" id="confirmTitle">Confirmar</div>
+      <div class="confirm-modal__text" id="confirmText">¿Estás seguro?</div>
+      <div class="confirm-modal__actions">
+        <button type="button" class="btn btn--secondary" id="confirmNo">Cancelar</button>
+        <button type="button" class="btn btn--primary" id="confirmYes">Confirmar</button>
+      </div>
+    </div>
+  </div>
 
   <script src="js/config.js"></script>
   <script src="js/main.js"></script>

@@ -1287,6 +1287,96 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @keyframes popIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideDown { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+/* ── 26b. CONFIRM MODAL ─────────────────────────────────────── */
+.confirm-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+}
+.confirm-modal--open { display: flex; }
+.confirm-modal__overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0,0,0,0.5);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.confirm-modal__content {
+  position: relative;
+  background-color: var(--color-bg-card);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-xl);
+  max-width: 400px;
+  width: 100%;
+  padding: var(--sp-8);
+  animation: popIn 0.25s ease;
+  text-align: center;
+}
+.confirm-modal__icon {
+  font-size: 3rem;
+  margin-bottom: var(--sp-4);
+  color: var(--color-warning);
+}
+.confirm-modal__title {
+  font-family: var(--font-heading);
+  font-size: var(--fs-xl);
+  letter-spacing: 0.03em;
+  color: var(--color-dark);
+  margin-bottom: var(--sp-2);
+}
+.confirm-modal__text {
+  font-size: var(--fs-sm);
+  color: var(--color-gray-500);
+  margin-bottom: var(--sp-6);
+  line-height: 1.6;
+}
+.confirm-modal__actions {
+  display: flex;
+  gap: var(--sp-3);
+  justify-content: center;
+}
+
+/* ── 26c. ANIMACIONES DE ENTRADA ────────────────────────────── */
+.section {
+  animation: fadeIn 0.6s ease;
+}
+.card, .feature-card, .testimonial, .stat-card {
+  transition: transform var(--transition-base), box-shadow var(--transition-base);
+}
+.card:hover, .feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ── 26d. TOAST NOTIFICATION ────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: var(--sp-6);
+  right: var(--sp-6);
+  z-index: 5000;
+  padding: var(--sp-4) var(--sp-6);
+  border-radius: var(--radius-lg);
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.3s ease;
+  display: none;
+  align-items: center;
+  gap: var(--sp-3);
+  max-width: 400px;
+}
+.toast--visible { display: flex; }
+.toast--success { background-color: var(--color-success); }
+.toast--error   { background-color: var(--color-error); }
+.toast--warning { background-color: var(--color-warning); }
 
 /* ── 26. RESPONSIVE ──────────────────────────────────────────── */
 @media (max-width: 1024px) {

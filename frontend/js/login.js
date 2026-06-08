@@ -88,8 +88,6 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('pf_token', data.access_token);
         localStorage.setItem('pf_user',  JSON.stringify(data.usuario));
 
-        /* Guardar token en sessionStorage también */
-        sessionStorage.setItem('pf_session_token', data.access_token);
 
         window.location.replace('admin.html');
 
@@ -126,7 +124,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setLoading(loading) {
     if (loginBtn) loginBtn.disabled = loading;
-    if (loginText) loginText.textContent = loading ? 'Ingresando...' : 'Ingresar al Panel';
     loginBtn?.classList.toggle('btn--disabled', loading);
+    if (loginText) loginText.textContent = loading ? 'Ingresando...' : 'Ingresar al Panel';
+    const icon = loginBtn?.querySelector('.fa-right-to-bracket');
+    if (icon) icon.className = loading ? 'fa-solid fa-circle-notch fa-spin' : 'fa-solid fa-right-to-bracket';
   }
 });

@@ -150,7 +150,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!submitBtn || !submitText) return;
     submitBtn.disabled = loading;
     submitBtn.classList.toggle('btn--disabled', loading);
-    submitText.textContent = loading ? 'Enviando...' : 'Enviar Consulta';
+    const icon = submitBtn.querySelector('.fa-paper-plane');
+    if (loading) {
+      if (icon) icon.className = 'fa-solid fa-circle-notch fa-spin';
+      submitText.textContent = 'Enviando...';
+    } else {
+      if (icon) icon.className = 'fa-solid fa-paper-plane';
+      submitText.textContent = 'Enviar Consulta';
+    }
   }
 
   function hideAlerts() {

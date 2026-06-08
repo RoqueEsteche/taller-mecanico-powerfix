@@ -13,7 +13,7 @@ ESTADOS_VALIDOS = ["nuevo", "en_proceso", "resuelto", "cerrado"]
 
 @router.post("/", response_model=schemas.ContactoResponse, status_code=201, summary="Registrar contacto desde formulario web")
 def crear_contacto(data: schemas.ContactoCreate, db: Session = Depends(get_db)):
-    contacto = models.Contacto(**data.dict())
+    contacto = models.Contacto(**data.model_dump())
     db.add(contacto)
     db.commit()
     db.refresh(contacto)

@@ -31,7 +31,7 @@ def crear_servicio(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_admin),
 ):
-    s = models.Servicio(**data.dict())
+    s = models.Servicio(**data.model_dump())
     db.add(s)
     db.commit()
     db.refresh(s)
@@ -48,7 +48,7 @@ def actualizar_servicio(
     s = db.query(models.Servicio).filter(models.Servicio.id == servicio_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
-    for k, v in data.dict().items():
+    for k, v in data.model_dump().items():
         setattr(s, k, v)
     db.commit()
     db.refresh(s)

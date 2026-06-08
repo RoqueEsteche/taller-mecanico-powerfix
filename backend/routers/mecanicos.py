@@ -22,7 +22,7 @@ def crear_mecanico(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_admin),
 ):
-    m = models.Mecanico(**data.dict())
+    m = models.Mecanico(**data.model_dump())
     db.add(m)
     db.commit()
     db.refresh(m)
@@ -39,7 +39,7 @@ def editar_mecanico(
     m = db.query(models.Mecanico).filter(models.Mecanico.id == mec_id).first()
     if not m:
         raise HTTPException(status_code=404, detail="Mecánico no encontrado")
-    for k, v in data.dict().items():
+    for k, v in data.model_dump().items():
         setattr(m, k, v)
     db.commit()
     db.refresh(m)

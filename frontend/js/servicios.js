@@ -4,11 +4,11 @@
  */
 
 const CATEGORY_ICONS = {
-  'Jardinería': '🌿',
-  'Forestal':   '🌲',
-  'Agricultura':'🚜',
-  'Energía':    '⚡',
-  'Agua':       '💧',
+  'Jardinería': '<i class="fa-solid fa-leaf"></i>',
+  'Forestal':   '<i class="fa-solid fa-tree"></i>',
+  'Agricultura':'<i class="fa-solid fa-tractor"></i>',
+  'Energía':    '<i class="fa-solid fa-bolt"></i>',
+  'Agua':       '<i class="fa-solid fa-droplet"></i>',
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -63,15 +63,16 @@ async function loadServicios(categoria = '') {
 
   } catch (err) {
     console.error('Error al cargar servicios:', err);
-    grid.innerHTML = `
-      <div class="no-results" style="grid-column:1/-1">
-        <i class="fa-solid fa-circle-exclamation no-results__icon"></i>
-        <p class="no-results__title">No se pudo cargar el catálogo.</p>
-        <p class="no-results__text">Asegurate de que el servidor esté corriendo en <code>localhost:8000</code>.</p>
-        <button type="button" class="btn btn--secondary btn--sm mt-4" onclick="loadServicios()">
-          <i class="fa-solid fa-rotate-right"></i> Reintentar
-        </button>
-      </div>`;
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'no-results';
+    errorDiv.innerHTML = `
+      <i class="fa-solid fa-circle-exclamation no-results__icon"></i>
+      <p class="no-results__title">No se pudo cargar el catálogo.</p>
+      <p class="no-results__text">Verificá que el servidor esté corriendo.</p>
+      <button type="button" class="btn btn--secondary btn--sm mt-4" onclick="loadServicios()">
+        <i class="fa-solid fa-rotate-right"></i> Reintentar
+      </button>`;
+    grid.appendChild(errorDiv);
   } finally {
     loader?.classList.remove('loader--visible');
   }
@@ -82,7 +83,7 @@ function buildCard(s) {
   article.className = 'card';
   article.setAttribute('aria-label', `Servicio: ${s.nombre}`);
 
-  const icon = CATEGORY_ICONS[s.categoria] || '🔧';
+  const icon = CATEGORY_ICONS[s.categoria] || '<i class="fa-solid fa-wrench"></i>';
 
   article.innerHTML = `
     <div class="card__image-placeholder" role="img" aria-label="${s.nombre}">

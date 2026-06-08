@@ -30,7 +30,7 @@ def crear_orden(
     db: Session = Depends(get_db),
     _: models.Usuario = Depends(require_admin),
 ):
-    payload = data.dict()
+    payload = data.model_dump()
     payload["estado"] = "recibido"
     ot = models.OrdenTrabajo(**payload)
     db.add(ot)
@@ -64,7 +64,7 @@ def editar_orden(
     ot = db.query(models.OrdenTrabajo).filter(models.OrdenTrabajo.id == orden_id).first()
     if not ot:
         raise HTTPException(status_code=404, detail="Orden no encontrada")
-    for k, v in data.dict().items():
+    for k, v in data.model_dump().items():
         setattr(ot, k, v)
     ot.costo_total = (ot.costo_mano_obra or 0) + (ot.costo_repuestos or 0)
     if ot.estado == "entregado" and not ot.fecha_entrega:

@@ -5,16 +5,13 @@
 
 const API = window.PF?.API_URL || 'http://localhost:8000';
 
-/* ── Cache de mecánicos (para dropdowns) ───────────────────── */
 let _mecanicos = [];
-
-/* ── Charts ─────────────────────────────────────────────────── */
+let _visitasData = null;
 let chartEstadosOT = null;
 let chartMaquinas  = null;
 let chartVisitas   = null;
 const CHART_COLORS = ['#E55F0A','#1E2D3D','#2563EB','#16A34A','#D97706','#DC2626','#7C3AED','#0891B2'];
 
-/* ── Etiquetas de estado ─────────────────────────────────────── */
 const LABEL_ORDEN = {
   recibido: 'Recibido', diagnosticando: 'Diagnosticando', reparando: 'Reparando',
   listo: 'Listo', entregado: 'Entregado', cancelado: 'Cancelado',
@@ -25,8 +22,39 @@ const LABEL_TURNO = {
 };
 const LABEL_ROL = { admin: 'Administrador', empleado: 'Empleado', cliente: 'Cliente' };
 
+/* ── Helpers ──────────────────────────────────────────────────── */
+function todayStr() { return new Date().toISOString().split('T')[0]; }
+
+/* ── Toast & Confirm helpers ──────────────────────────────────── */
+function showToast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `toast toast--${type} toast--visible`;
+  setTimeout(() => { el.classList.remove('toast--visible'); }, 3500);
+}
+
+function showConfirm(title, text) {
+  return new Promise(resolve => {
+    const modal = document.getElementById('confirmModal');
+    if (!modal) { resolve(confirm(text)); return; }
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmText').textContent  = text;
+    modal.classList.add('confirm-modal--open');
+    const cleanup = () => {
+      modal.classList.remove('confirm-modal--open');
+      document.getElementById('confirmYes')?.removeEventListener('click', onYes);
+      document.getElementById('confirmNo')?.removeEventListener('click',  onNo);
+    };
+    const onYes = () => { cleanup(); resolve(true); };
+    const onNo  = () => { cleanup(); resolve(false); };
+    document.getElementById('confirmYes')?.addEventListener('click', onYes);
+    document.getElementById('confirmNo')?.addEventListener('click',  onNo);
+  });
+}
+
 /* ══════════════════════════════════════════════════════════════
-   INIT
+   INIT — ÚNICO listener DOMContentLoaded
    ══════════════════════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', async () => {
   const token = localStorage.getItem('pf_token');
@@ -51,25 +79,87 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSidebar();
   initTheme();
 
+  /* Escape → cerrar modales */
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    ['ordenModal','turnoModal','mecanicoModal','repuestoModal','stockModal',
+     'servicioModal','usuarioModal'].forEach(id => {
+      document.getElementById(id)?.classList.remove('modal--open');
+    });
+  });
+
+  /* Logout */
   document.getElementById('logoutBtn')?.addEventListener('click', () => {
     localStorage.removeItem('pf_token');
     localStorage.removeItem('pf_user');
     window.location.replace('login.html');
   });
 
-  /* Cargar mecánicos en cache (para dropdowns) */
-  await refreshMecanicosCache();
+  /* ── ÓRDENES ─────────────────────────────────────────────── */
+  document.getElementById('ordenesBody')?.addEventListener('click',  handleOrdenAction);
+  document.getElementById('ordenesBody')?.addEventListener('change', handleOrdenAction);
+  document.getElementById('nuevaOrdenBtn')?.addEventListener('click', () => openOrdenModal());
+  document.getElementById('filtroOrdenEstado')?.addEventListener('change', e => loadOrdenes(e.target.value));
+  document.getElementById('ordenModalClose')?.addEventListener('click',   closeOrdenModal);
+  document.getElementById('ordenModalCancel')?.addEventListener('click',  closeOrdenModal);
+  document.getElementById('ordenModalOverlay')?.addEventListener('click', closeOrdenModal);
+  document.getElementById('oCostoMO')?.addEventListener('input',  updateOrdenTotal);
+  document.getElementById('oCostoRep')?.addEventListener('input', updateOrdenTotal);
+  document.getElementById('ordenForm')?.addEventListener('submit', submitOrdenForm);
 
-  /* Cargar todos los datos en paralelo */
+  /* ── AGENDA ───────────────────────────────────────────────── */
+  document.getElementById('agendaBody')?.addEventListener('click',  handleAgendaAction);
+  document.getElementById('agendaBody')?.addEventListener('change', handleAgendaAction);
+  document.getElementById('nuevoTurnoBtn')?.addEventListener('click', () => openTurnoModal());
+  document.getElementById('turnoModalClose')?.addEventListener('click',   closeTurnoModal);
+  document.getElementById('turnoModalCancel')?.addEventListener('click',  closeTurnoModal);
+  document.getElementById('turnoModalOverlay')?.addEventListener('click', closeTurnoModal);
+  document.getElementById('turnoForm')?.addEventListener('submit', submitTurnoForm);
+
+  /* ── MECÁNICOS ────────────────────────────────────────────── */
+  document.getElementById('mecanicosBody')?.addEventListener('click', handleMecanicoAction);
+  document.getElementById('nuevoMecanicoBtn')?.addEventListener('click', () => openMecanicoModal());
+  document.getElementById('mecanicoModalClose')?.addEventListener('click',   closeMecanicoModal);
+  document.getElementById('mecanicoModalCancel')?.addEventListener('click',  closeMecanicoModal);
+  document.getElementById('mecanicoModalOverlay')?.addEventListener('click', closeMecanicoModal);
+  document.getElementById('mecanicoForm')?.addEventListener('submit', submitMecanicoForm);
+
+  /* ── INVENTARIO ──────────────────────────────────────────── */
+  document.getElementById('inventarioBody')?.addEventListener('click', handleInventarioAction);
+  document.getElementById('nuevoRepuestoBtn')?.addEventListener('click', () => openRepuestoModal());
+  document.getElementById('stockModalClose')?.addEventListener('click',  closeStockModal);
+  document.getElementById('stockModalCancel')?.addEventListener('click', closeStockModal);
+  document.getElementById('stockModalOverlay')?.addEventListener('click',closeStockModal);
+  document.getElementById('stockConfirmar')?.addEventListener('click', confirmAjusteStock);
+  document.getElementById('repuestoModalClose')?.addEventListener('click',   closeRepuestoModal);
+  document.getElementById('repuestoModalCancel')?.addEventListener('click',  closeRepuestoModal);
+  document.getElementById('repuestoModalOverlay')?.addEventListener('click', closeRepuestoModal);
+  document.getElementById('repuestoForm')?.addEventListener('submit', submitRepuestoForm);
+
+  /* ── CLIENTES ─────────────────────────────────────────────── */
+  document.getElementById('recargarClientes')?.addEventListener('click', loadClientes);
+
+  /* ── SERVICIOS ────────────────────────────────────────────── */
+  document.getElementById('serviciosBody')?.addEventListener('click', handleServicioAction);
+  document.getElementById('nuevoServicioBtn')?.addEventListener('click', () => openServicioModal());
+  document.getElementById('servicioModalClose')?.addEventListener('click',   closeServicioModal);
+  document.getElementById('servicioModalCancel')?.addEventListener('click',  closeServicioModal);
+  document.getElementById('servicioModalOverlay')?.addEventListener('click', closeServicioModal);
+  document.getElementById('servicioForm')?.addEventListener('submit', submitServicioForm);
+
+  /* ── USUARIOS ─────────────────────────────────────────────── */
+  document.getElementById('usuariosBody')?.addEventListener('click', handleUsuarioAction);
+  document.getElementById('nuevoUsuarioBtn')?.addEventListener('click', () => openUsuarioModal());
+  document.getElementById('usuarioModalClose')?.addEventListener('click',   closeUsuarioModal);
+  document.getElementById('usuarioModalCancel')?.addEventListener('click',  closeUsuarioModal);
+  document.getElementById('usuarioModalOverlay')?.addEventListener('click', closeUsuarioModal);
+  document.getElementById('usuarioForm')?.addEventListener('submit', submitUsuarioForm);
+
+  /* Cargar mecánicos en cache y luego datos */
+  await refreshMecanicosCache();
   await Promise.all([
-    loadDashboard(),
-    loadOrdenes(),
-    loadAgenda(),
-    loadMecanicos(),
-    loadInventario(),
-    loadClientes(),
-    loadServicios(),
-    loadUsuarios(),
+    loadDashboard(), loadOrdenes(), loadAgenda(), loadMecanicos(),
+    loadInventario(), loadClientes(), loadServicios(), loadUsuarios(),
   ]);
 });
 
@@ -123,14 +213,6 @@ function initTheme() {
   });
 }
 
-document.addEventListener('keydown', e => {
-  if (e.key !== 'Escape') return;
-  ['ordenModal','turnoModal','mecanicoModal','repuestoModal','stockModal',
-   'servicioModal','usuarioModal'].forEach(id => {
-    document.getElementById(id)?.classList.remove('modal--open');
-  });
-});
-
 /* ══════════════════════════════════════════════════════════════
    DASHBOARD
    ══════════════════════════════════════════════════════════════ */
@@ -156,7 +238,7 @@ async function loadDashboard() {
 
     renderDoughnutChart('chartEstadosOT', c.estados.labels, c.estados.data);
     renderBarChart('chartMaquinas',       c.maquinas.labels, c.maquinas.data, 'Consultas');
-    window._visitasData = c.visitas;
+    _visitasData = c.visitas;
   } catch { /* dashboard no crítico */ }
 }
 
@@ -216,37 +298,33 @@ async function loadOrdenes(estado = '') {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('ordenesBody')?.addEventListener('click',  handleOrdenAction);
-  document.getElementById('ordenesBody')?.addEventListener('change', handleOrdenAction);
-  document.getElementById('nuevaOrdenBtn')?.addEventListener('click', () => openOrdenModal());
-  document.getElementById('filtroOrdenEstado')?.addEventListener('change', e => loadOrdenes(e.target.value));
-});
-
 async function handleOrdenAction(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const id = parseInt(btn.dataset.id);
   const tr = btn.closest('tr');
 
-  if (btn.dataset.action === 'orden-edit') openOrdenModal(tr._data);
+  if (btn.dataset.action === 'orden-edit') return openOrdenModal(tr._data);
 
   if (btn.dataset.action === 'orden-estado') {
     try {
       const r = await fetchAuth(`/api/ordenes/${id}/estado`, 'PATCH', { estado: btn.value });
       if (!r.ok) throw new Error();
       if (tr._data) tr._data.estado = btn.value;
-    } catch { alert('No se pudo actualizar el estado.'); }
+    } catch { showToast('No se pudo actualizar el estado.', 'error'); }
+    return;
   }
 
   if (btn.dataset.action === 'orden-delete') {
-    if (!confirm('¿Eliminar esta orden de trabajo? La acción no se puede deshacer.')) return;
+    const ok = await showConfirm('Eliminar Orden', '¿Eliminar esta orden de trabajo? Esta acción no se puede deshacer.');
+    if (!ok) return;
     try {
       const r = await fetchAuth(`/api/ordenes/${id}`, 'DELETE');
       if (!r.ok) throw new Error();
       tr.remove();
       loadDashboard();
-    } catch { alert('No se pudo eliminar la orden.'); }
+      showToast('Orden eliminada.', 'success');
+    } catch { showToast('No se pudo eliminar la orden.', 'error'); }
   }
 }
 
@@ -277,6 +355,7 @@ function openOrdenModal(orden = null) {
   } else {
     document.getElementById('ordenModalTitle').textContent = 'Nueva Orden de Trabajo';
     document.getElementById('ordenId').value = '';
+    document.getElementById('oFechaEst').min = todayStr();
   }
   modal.classList.add('modal--open');
 }
@@ -290,71 +369,58 @@ function updateOrdenTotal() {
   if (el) el.textContent = formatPrice(mo + rep);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('ordenModalClose')?.addEventListener('click',   closeOrdenModal);
-  document.getElementById('ordenModalCancel')?.addEventListener('click',  closeOrdenModal);
-  document.getElementById('ordenModalOverlay')?.addEventListener('click', closeOrdenModal);
-  document.getElementById('oCostoMO')?.addEventListener('input',  updateOrdenTotal);
-  document.getElementById('oCostoRep')?.addEventListener('input', updateOrdenTotal);
+async function submitOrdenForm(e) {
+  e.preventDefault();
+  const id  = document.getElementById('ordenId').value;
+  const btn = document.getElementById('ordenFormSubmit');
+  const txt = document.getElementById('ordenSubmitText');
 
-  document.getElementById('ordenForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const id  = document.getElementById('ordenId').value;
-    const btn = document.getElementById('ordenFormSubmit');
-    const txt = document.getElementById('ordenSubmitText');
+  const nombre   = document.getElementById('oNombre').value.trim();
+  const vehiculo = document.getElementById('oVehiculo').value.trim();
+  const problema = document.getElementById('oProblema').value.trim();
+  if (!nombre || !vehiculo || !problema) {
+    showToast('Completá nombre, equipo y descripción del problema.', 'warning');
+    return;
+  }
 
-    const nombre   = document.getElementById('oNombre').value.trim();
-    const vehiculo = document.getElementById('oVehiculo').value.trim();
-    const problema = document.getElementById('oProblema').value.trim();
-    if (!nombre || !vehiculo || !problema) {
-      alert('Completá los campos obligatorios: nombre, equipo y descripción del problema.');
-      return;
-    }
+  const mecId    = parseInt(document.getElementById('oMecanico').value) || null;
+  const mecFound = mecId ? _mecanicos.find(m => m.id === mecId) : null;
+  const mecNombre = mecFound ? `${mecFound.nombre} ${mecFound.apellido}` : null;
 
-    const mecId    = parseInt(document.getElementById('oMecanico').value) || null;
-    const mecNombre = mecId
-      ? (_mecanicos.find(m => m.id === mecId) ? `${_mecanicos.find(m => m.id === mecId).nombre} ${_mecanicos.find(m => m.id === mecId).apellido}` : null)
-      : null;
+  const mo  = parseFloat(document.getElementById('oCostoMO').value)  || 0;
+  const rep = parseFloat(document.getElementById('oCostoRep').value) || 0;
 
-    const mo  = parseFloat(document.getElementById('oCostoMO').value)  || 0;
-    const rep = parseFloat(document.getElementById('oCostoRep').value) || 0;
+  const payload = {
+    cliente_nombre:       nombre,
+    cliente_telefono:     document.getElementById('oTelefono').value.trim() || null,
+    cliente_email:        document.getElementById('oEmail').value.trim()    || null,
+    vehiculo,
+    descripcion_problema: problema,
+    diagnostico:          document.getElementById('oDiagnostico').value.trim() || null,
+    trabajo_realizado:    document.getElementById('oTrabajo').value.trim()     || null,
+    mecanico_id:          mecId, mecanico_nombre: mecNombre,
+    prioridad:            document.getElementById('oPrioridad').value,
+    estado:               document.getElementById('oEstado').value,
+    costo_mano_obra:      mo, costo_repuestos: rep, costo_total: mo + rep,
+    fecha_estimada:       document.getElementById('oFechaEst').value || null,
+    notas_internas:       document.getElementById('oNotas').value.trim() || null,
+  };
 
-    const payload = {
-      cliente_nombre:       nombre,
-      cliente_telefono:     document.getElementById('oTelefono').value.trim() || null,
-      cliente_email:        document.getElementById('oEmail').value.trim()    || null,
-      vehiculo,
-      descripcion_problema: problema,
-      diagnostico:          document.getElementById('oDiagnostico').value.trim() || null,
-      trabajo_realizado:    document.getElementById('oTrabajo').value.trim()     || null,
-      mecanico_id:          mecId,
-      mecanico_nombre:      mecNombre,
-      prioridad:            document.getElementById('oPrioridad').value,
-      estado:               document.getElementById('oEstado').value,
-      costo_mano_obra:      mo,
-      costo_repuestos:      rep,
-      costo_total:          mo + rep,
-      fecha_estimada:       document.getElementById('oFechaEst').value || null,
-      notas_internas:       document.getElementById('oNotas').value.trim() || null,
-    };
-
-    btn.disabled    = true;
-    txt.textContent = 'Guardando...';
-    try {
-      const res = id
-        ? await fetchAuth(`/api/ordenes/${id}`, 'PUT',  payload)
-        : await fetchAuth('/api/ordenes',        'POST', payload);
-      if (!res.ok) { const d = await res.json().catch(()=>({})); throw new Error(d.detail || `Error ${res.status}`); }
-      closeOrdenModal();
-      await Promise.all([loadOrdenes(document.getElementById('filtroOrdenEstado').value), loadDashboard()]);
-    } catch (err) {
-      alert(`No se pudo guardar la orden: ${err.message}`);
-    } finally {
-      btn.disabled    = false;
-      txt.textContent = 'Guardar Orden';
-    }
-  });
-});
+  btn.disabled = true; txt.textContent = 'Guardando...';
+  try {
+    const res = id
+      ? await fetchAuth(`/api/ordenes/${id}`, 'PUT',  payload)
+      : await fetchAuth('/api/ordenes',        'POST', payload);
+    if (!res.ok) { const d = await res.json().catch(()=>({})); throw new Error(d.detail || `Error ${res.status}`); }
+    closeOrdenModal();
+    await Promise.all([loadOrdenes(document.getElementById('filtroOrdenEstado').value), loadDashboard()]);
+    showToast('Orden guardada.', 'success');
+  } catch (err) {
+    showToast(`No se pudo guardar: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false; txt.textContent = 'Guardar Orden';
+  }
+}
 
 /* ══════════════════════════════════════════════════════════════
    AGENDA DE TURNOS
@@ -403,35 +469,32 @@ async function loadAgenda() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('agendaBody')?.addEventListener('click',  handleAgendaAction);
-  document.getElementById('agendaBody')?.addEventListener('change', handleAgendaAction);
-  document.getElementById('nuevoTurnoBtn')?.addEventListener('click', () => openTurnoModal());
-});
-
 async function handleAgendaAction(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const id = parseInt(btn.dataset.id);
   const tr = btn.closest('tr');
 
-  if (btn.dataset.action === 'turno-edit') openTurnoModal(tr._data);
+  if (btn.dataset.action === 'turno-edit') return openTurnoModal(tr._data);
 
   if (btn.dataset.action === 'turno-estado') {
     try {
       const r = await fetchAuth(`/api/turnos/${id}/estado`, 'PATCH', { estado: btn.value });
       if (!r.ok) throw new Error();
       if (tr._data) tr._data.estado = btn.value;
-    } catch { alert('No se pudo actualizar el estado.'); }
+    } catch { showToast('No se pudo actualizar el estado.', 'error'); }
+    return;
   }
 
   if (btn.dataset.action === 'turno-delete') {
-    if (!confirm('¿Eliminar este turno?')) return;
+    const ok = await showConfirm('Eliminar Turno', '¿Eliminar este turno?');
+    if (!ok) return;
     try {
       const r = await fetchAuth(`/api/turnos/${id}`, 'DELETE');
       if (!r.ok) throw new Error();
       tr.remove();
-    } catch { alert('No se pudo eliminar el turno.'); }
+      showToast('Turno eliminado.', 'success');
+    } catch { showToast('No se pudo eliminar el turno.', 'error'); }
   }
 }
 
@@ -461,65 +524,55 @@ function openTurnoModal(turno = null) {
   } else {
     document.getElementById('turnoModalTitle').textContent = 'Nuevo Turno';
     document.getElementById('turnoId').value = '';
-    document.getElementById('tFecha').value  = new Date().toISOString().split('T')[0];
+    const hoy = todayStr();
+    document.getElementById('tFecha').value  = hoy;
+    document.getElementById('tFecha').min    = hoy;
   }
   modal.classList.add('modal--open');
 }
 
 function closeTurnoModal() { document.getElementById('turnoModal')?.classList.remove('modal--open'); }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('turnoModalClose')?.addEventListener('click',   closeTurnoModal);
-  document.getElementById('turnoModalCancel')?.addEventListener('click',  closeTurnoModal);
-  document.getElementById('turnoModalOverlay')?.addEventListener('click', closeTurnoModal);
+async function submitTurnoForm(e) {
+  e.preventDefault();
+  const id  = document.getElementById('turnoId').value;
+  const btn = document.getElementById('turnoFormSubmit');
+  const txt = document.getElementById('turnoSubmitText');
 
-  document.getElementById('turnoForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const id  = document.getElementById('turnoId').value;
-    const btn = document.getElementById('turnoFormSubmit');
-    const txt = document.getElementById('turnoSubmitText');
+  const nombre   = document.getElementById('tNombre').value.trim();
+  const vehiculo = document.getElementById('tVehiculo').value.trim();
+  const servicio = document.getElementById('tServicio').value.trim();
+  const fecha    = document.getElementById('tFecha').value;
+  const hora     = document.getElementById('tHora').value;
+  if (!nombre || !vehiculo || !servicio || !fecha || !hora) {
+    showToast('Completá los campos obligatorios.', 'warning'); return;
+  }
 
-    const nombre   = document.getElementById('tNombre').value.trim();
-    const vehiculo = document.getElementById('tVehiculo').value.trim();
-    const servicio = document.getElementById('tServicio').value.trim();
-    const fecha    = document.getElementById('tFecha').value;
-    const hora     = document.getElementById('tHora').value;
-    if (!nombre || !vehiculo || !servicio || !fecha || !hora) {
-      alert('Completá los campos obligatorios.'); return;
-    }
+  const mecSel   = document.getElementById('tMecanico');
+  const mecNombre = mecSel.value ? mecSel.options[mecSel.selectedIndex].text : null;
 
-    /* Obtener nombre del mecánico del select */
-    const mecSel   = document.getElementById('tMecanico');
-    const mecNombre = mecSel.value
-      ? mecSel.options[mecSel.selectedIndex].text
-      : null;
+  const payload = {
+    cliente_nombre: nombre, cliente_telefono: document.getElementById('tTelefono').value.trim() || null,
+    cliente_email:  document.getElementById('tEmail').value.trim() || null,
+    vehiculo, servicio, fecha, hora, mecanico: mecNombre,
+    notas: document.getElementById('tNotas').value.trim() || null,
+  };
 
-    const payload = {
-      cliente_nombre:   nombre,
-      cliente_telefono: document.getElementById('tTelefono').value.trim() || null,
-      cliente_email:    document.getElementById('tEmail').value.trim()    || null,
-      vehiculo, servicio, fecha, hora,
-      mecanico: mecNombre,
-      notas:    document.getElementById('tNotas').value.trim() || null,
-    };
-
-    btn.disabled    = true;
-    txt.textContent = 'Guardando...';
-    try {
-      const res = id
-        ? await fetchAuth(`/api/turnos/${id}`, 'PUT',  payload)
-        : await fetchAuth('/api/turnos',        'POST', payload);
-      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
-      closeTurnoModal();
-      await loadAgenda();
-    } catch (err) {
-      alert(`No se pudo guardar: ${err.message}`);
-    } finally {
-      btn.disabled    = false;
-      txt.textContent = 'Guardar Turno';
-    }
-  });
-});
+  btn.disabled = true; txt.textContent = 'Guardando...';
+  try {
+    const res = id
+      ? await fetchAuth(`/api/turnos/${id}`, 'PUT',  payload)
+      : await fetchAuth('/api/turnos',        'POST', payload);
+    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
+    closeTurnoModal();
+    await loadAgenda();
+    showToast('Turno guardado.', 'success');
+  } catch (err) {
+    showToast(`No se pudo guardar: ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false; txt.textContent = 'Guardar Turno';
+  }
+}
 
 /* ══════════════════════════════════════════════════════════════
    MECÁNICOS
@@ -582,11 +635,6 @@ async function loadMecanicos() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('mecanicosBody')?.addEventListener('click', handleMecanicoAction);
-  document.getElementById('nuevoMecanicoBtn')?.addEventListener('click', () => openMecanicoModal());
-});
-
 async function handleMecanicoAction(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
@@ -600,17 +648,19 @@ async function handleMecanicoAction(e) {
       const r = await fetchAuth(`/api/mecanicos/${id}/toggle`, 'PATCH');
       if (!r.ok) throw new Error();
       await loadMecanicos();
-    } catch { alert('No se pudo cambiar el estado.'); }
+    } catch { showToast('No se pudo cambiar el estado.', 'error'); }
   }
 
   if (btn.dataset.action === 'mec-delete') {
-    if (!confirm('¿Eliminar este mecánico?')) return;
+    const ok = await showConfirm('Eliminar Mecánico', '¿Eliminar este mecánico?');
+    if (!ok) return;
     try {
       const r = await fetchAuth(`/api/mecanicos/${id}`, 'DELETE');
       if (!r.ok) throw new Error();
       tr.remove();
       await refreshMecanicosCache();
-    } catch { alert('No se pudo eliminar.'); }
+      showToast('Mecánico eliminado.', 'success');
+    } catch { showToast('No se pudo eliminar.', 'error'); }
   }
 }
 
@@ -636,41 +686,36 @@ function openMecanicoModal(mec = null) {
 
 function closeMecanicoModal() { document.getElementById('mecanicoModal')?.classList.remove('modal--open'); }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('mecanicoModalClose')?.addEventListener('click',   closeMecanicoModal);
-  document.getElementById('mecanicoModalCancel')?.addEventListener('click',  closeMecanicoModal);
-  document.getElementById('mecanicoModalOverlay')?.addEventListener('click', closeMecanicoModal);
+async function submitMecanicoForm(e) {
+  e.preventDefault();
+  const id  = document.getElementById('mecanicoId').value;
+  const btn = document.getElementById('mecanicoFormSubmit');
+  const txt = document.getElementById('mecanicoSubmitText');
+  const nombre   = document.getElementById('mNombre').value.trim();
+  const apellido = document.getElementById('mApellido').value.trim();
+  if (!nombre || !apellido) { showToast('Nombre y apellido son requeridos.', 'warning'); return; }
 
-  document.getElementById('mecanicoForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const id  = document.getElementById('mecanicoId').value;
-    const btn = document.getElementById('mecanicoFormSubmit');
-    const txt = document.getElementById('mecanicoSubmitText');
-    const nombre   = document.getElementById('mNombre').value.trim();
-    const apellido = document.getElementById('mApellido').value.trim();
-    if (!nombre || !apellido) { alert('Nombre y apellido son requeridos.'); return; }
-
-    const payload = {
-      nombre, apellido,
-      telefono:     document.getElementById('mTelefono').value.trim()     || null,
-      email:        document.getElementById('mEmail').value.trim()        || null,
-      especialidad: document.getElementById('mEspecialidad').value.trim() || null,
-      activo:       document.getElementById('mActivo').checked,
-    };
-    btn.disabled = true; txt.textContent = 'Guardando...';
-    try {
-      const res = id
-        ? await fetchAuth(`/api/mecanicos/${id}`, 'PUT',  payload)
-        : await fetchAuth('/api/mecanicos',        'POST', payload);
-      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
-      closeMecanicoModal();
-      await loadMecanicos();
-      await loadDashboard();
-    } catch (err) {
-      alert(`No se pudo guardar: ${err.message}`);
-    } finally { btn.disabled = false; txt.textContent = 'Guardar'; }
-  });
-});
+  const payload = {
+    nombre, apellido,
+    telefono:     document.getElementById('mTelefono').value.trim()     || null,
+    email:        document.getElementById('mEmail').value.trim()        || null,
+    especialidad: document.getElementById('mEspecialidad').value.trim() || null,
+    activo:       document.getElementById('mActivo').checked,
+  };
+  btn.disabled = true; txt.textContent = 'Guardando...';
+  try {
+    const res = id
+      ? await fetchAuth(`/api/mecanicos/${id}`, 'PUT',  payload)
+      : await fetchAuth('/api/mecanicos',        'POST', payload);
+    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
+    closeMecanicoModal();
+    await loadMecanicos();
+    await loadDashboard();
+    showToast('Mecánico guardado.', 'success');
+  } catch (err) {
+    showToast(`No se pudo guardar: ${err.message}`, 'error');
+  } finally { btn.disabled = false; txt.textContent = 'Guardar'; }
+}
 
 /* ══════════════════════════════════════════════════════════════
    INVENTARIO / REPUESTOS
@@ -723,33 +768,25 @@ async function loadInventario() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('inventarioBody')?.addEventListener('click', handleInventarioAction);
-  document.getElementById('nuevoRepuestoBtn')?.addEventListener('click', () => openRepuestoModal());
-  document.getElementById('stockModalClose')?.addEventListener('click',  closeStockModal);
-  document.getElementById('stockModalCancel')?.addEventListener('click', closeStockModal);
-  document.getElementById('stockModalOverlay')?.addEventListener('click',closeStockModal);
-  document.getElementById('stockConfirmar')?.addEventListener('click', confirmAjusteStock);
-});
-
 async function handleInventarioAction(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const id = parseInt(btn.dataset.id);
   const tr = btn.closest('tr');
 
-  if (btn.dataset.action === 'rep-edit') openRepuestoModal(tr._data);
-
-  if (btn.dataset.action === 'rep-stock') openStockModal(tr._data);
+  if (btn.dataset.action === 'rep-edit') return openRepuestoModal(tr._data);
+  if (btn.dataset.action === 'rep-stock') return openStockModal(tr._data);
 
   if (btn.dataset.action === 'rep-delete') {
-    if (!confirm('¿Eliminar este repuesto del inventario?')) return;
+    const ok = await showConfirm('Eliminar Repuesto', '¿Eliminar este repuesto del inventario?');
+    if (!ok) return;
     try {
       const r = await fetchAuth(`/api/inventario/${id}`, 'DELETE');
       if (!r.ok) throw new Error();
       tr.remove();
       loadDashboard();
-    } catch { alert('No se pudo eliminar.'); }
+      showToast('Repuesto eliminado.', 'success');
+    } catch { showToast('No se pudo eliminar.', 'error'); }
   }
 }
 
@@ -779,46 +816,41 @@ function openRepuestoModal(rep = null) {
 
 function closeRepuestoModal() { document.getElementById('repuestoModal')?.classList.remove('modal--open'); }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('repuestoModalClose')?.addEventListener('click',   closeRepuestoModal);
-  document.getElementById('repuestoModalCancel')?.addEventListener('click',  closeRepuestoModal);
-  document.getElementById('repuestoModalOverlay')?.addEventListener('click', closeRepuestoModal);
+async function submitRepuestoForm(e) {
+  e.preventDefault();
+  const id  = document.getElementById('repuestoId').value;
+  const btn = document.getElementById('repuestoFormSubmit');
+  const txt = document.getElementById('repuestoSubmitText');
+  const codigo = document.getElementById('rCodigo').value.trim();
+  const nombre = document.getElementById('rNombre').value.trim();
+  if (!codigo || !nombre) { showToast('Código y nombre son requeridos.', 'warning'); return; }
 
-  document.getElementById('repuestoForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const id  = document.getElementById('repuestoId').value;
-    const btn = document.getElementById('repuestoFormSubmit');
-    const txt = document.getElementById('repuestoSubmitText');
-    const codigo = document.getElementById('rCodigo').value.trim();
-    const nombre = document.getElementById('rNombre').value.trim();
-    if (!codigo || !nombre) { alert('Código y nombre son requeridos.'); return; }
-
-    const payload = {
-      codigo, nombre,
-      descripcion:  document.getElementById('rDescripcion').value.trim()  || null,
-      categoria:    document.getElementById('rCategoria').value.trim()     || null,
-      stock:        parseInt(document.getElementById('rStock').value)      || 0,
-      stock_minimo: parseInt(document.getElementById('rStockMin').value)   || 5,
-      precio_costo: parseFloat(document.getElementById('rPrecioCosto').value) || 0,
-      precio_venta: parseFloat(document.getElementById('rPrecioVenta').value) || 0,
-      proveedor:    document.getElementById('rProveedor').value.trim()     || null,
-      ubicacion:    document.getElementById('rUbicacion').value.trim()     || null,
-      activo:       true,
-    };
-    btn.disabled = true; txt.textContent = 'Guardando...';
-    try {
-      const res = id
-        ? await fetchAuth(`/api/inventario/${id}`, 'PUT',  payload)
-        : await fetchAuth('/api/inventario',        'POST', payload);
-      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
-      closeRepuestoModal();
-      await loadInventario();
-      await loadDashboard();
-    } catch (err) {
-      alert(`No se pudo guardar: ${err.message}`);
-    } finally { btn.disabled = false; txt.textContent = 'Guardar'; }
-  });
-});
+  const payload = {
+    codigo, nombre,
+    descripcion:  document.getElementById('rDescripcion').value.trim()  || null,
+    categoria:    document.getElementById('rCategoria').value.trim()     || null,
+    stock:        parseInt(document.getElementById('rStock').value)      || 0,
+    stock_minimo: parseInt(document.getElementById('rStockMin').value)   || 5,
+    precio_costo: parseFloat(document.getElementById('rPrecioCosto').value) || 0,
+    precio_venta: parseFloat(document.getElementById('rPrecioVenta').value) || 0,
+    proveedor:    document.getElementById('rProveedor').value.trim()     || null,
+    ubicacion:    document.getElementById('rUbicacion').value.trim()     || null,
+    activo:       true,
+  };
+  btn.disabled = true; txt.textContent = 'Guardando...';
+  try {
+    const res = id
+      ? await fetchAuth(`/api/inventario/${id}`, 'PUT',  payload)
+      : await fetchAuth('/api/inventario',        'POST', payload);
+    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
+    closeRepuestoModal();
+    await loadInventario();
+    await loadDashboard();
+    showToast('Repuesto guardado.', 'success');
+  } catch (err) {
+    showToast(`No se pudo guardar: ${err.message}`, 'error');
+  } finally { btn.disabled = false; txt.textContent = 'Guardar'; }
+}
 
 function openStockModal(rep) {
   _stockRepuestoId = rep.id;
@@ -845,7 +877,8 @@ async function confirmAjusteStock() {
     closeStockModal();
     await loadInventario();
     await loadDashboard();
-  } catch (err) { alert(`Error al ajustar stock: ${err.message}`); }
+    showToast('Stock ajustado.', 'success');
+  } catch (err) { showToast(`Error al ajustar stock: ${err.message}`, 'error'); }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -879,10 +912,6 @@ async function loadClientes() {
     tbody.innerHTML = '<tr><td colspan="5" class="td-error">Error al cargar clientes.</td></tr>';
   }
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('recargarClientes')?.addEventListener('click', loadClientes);
-});
 
 /* ══════════════════════════════════════════════════════════════
    SERVICIOS
@@ -933,18 +962,13 @@ async function loadServicios() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('serviciosBody')?.addEventListener('click', handleServicioAction);
-  document.getElementById('nuevoServicioBtn')?.addEventListener('click', () => openServicioModal());
-});
-
 async function handleServicioAction(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const id = parseInt(btn.dataset.id);
   const tr = btn.closest('tr');
 
-  if (btn.dataset.action === 'svc-edit') openServicioModal(tr._data);
+  if (btn.dataset.action === 'svc-edit') return openServicioModal(tr._data);
 
   if (btn.dataset.action === 'svc-toggle') {
     const s = tr._data;
@@ -953,16 +977,19 @@ async function handleServicioAction(e) {
       const r = await fetchAuth(`/api/servicios/${id}`, 'PUT', payload);
       if (!r.ok) throw new Error();
       await loadServicios();
-    } catch { alert('No se pudo cambiar el estado.'); }
+    } catch { showToast('No se pudo cambiar el estado.', 'error'); }
+    return;
   }
 
   if (btn.dataset.action === 'svc-delete') {
-    if (!confirm('¿Eliminar este servicio del catálogo?')) return;
+    const ok = await showConfirm('Eliminar Servicio', '¿Eliminar este servicio del catálogo?');
+    if (!ok) return;
     try {
       const r = await fetchAuth(`/api/servicios/${id}`, 'DELETE');
       if (!r.ok) throw new Error();
       tr.remove();
-    } catch { alert('No se pudo eliminar.'); }
+      showToast('Servicio eliminado.', 'success');
+    } catch { showToast('No se pudo eliminar.', 'error'); }
   }
 }
 
@@ -990,42 +1017,37 @@ function openServicioModal(svc = null) {
 
 function closeServicioModal() { document.getElementById('servicioModal')?.classList.remove('modal--open'); }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('servicioModalClose')?.addEventListener('click',   closeServicioModal);
-  document.getElementById('servicioModalCancel')?.addEventListener('click',  closeServicioModal);
-  document.getElementById('servicioModalOverlay')?.addEventListener('click', closeServicioModal);
+async function submitServicioForm(e) {
+  e.preventDefault();
+  const id   = document.getElementById('servicioId').value;
+  const btn  = document.getElementById('servicioFormSubmit');
+  const txt  = document.getElementById('servicioSubmitText');
+  const nom  = document.getElementById('svcNombre').value.trim();
+  const cat  = document.getElementById('svcCategoria').value;
+  const desc = document.getElementById('svcDescripcion').value.trim();
+  const prec = parseFloat(document.getElementById('svcPrecio').value);
+  const img  = document.getElementById('svcImagen').value.trim();
+  if (!nom || !cat || !desc || isNaN(prec) || !img) { showToast('Completá todos los campos obligatorios (*)', 'warning'); return; }
 
-  document.getElementById('servicioForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const id   = document.getElementById('servicioId').value;
-    const btn  = document.getElementById('servicioFormSubmit');
-    const txt  = document.getElementById('servicioSubmitText');
-    const nom  = document.getElementById('svcNombre').value.trim();
-    const cat  = document.getElementById('svcCategoria').value;
-    const desc = document.getElementById('svcDescripcion').value.trim();
-    const prec = parseFloat(document.getElementById('svcPrecio').value);
-    const img  = document.getElementById('svcImagen').value.trim();
-    if (!nom || !cat || !desc || isNaN(prec) || !img) { alert('Completá todos los campos obligatorios (*)'); return; }
-
-    const payload = {
-      nombre: nom, categoria: cat, descripcion: desc, precio_base: prec,
-      imagen_path: img,
-      tiempo_estimado: document.getElementById('svcTiempo').value.trim() || null,
-      disponible: document.getElementById('svcDisponible').checked,
-    };
-    btn.disabled = true; txt.textContent = 'Guardando...';
-    try {
-      const res = id
-        ? await fetchAuth(`/api/servicios/${id}`, 'PUT',  payload)
-        : await fetchAuth('/api/servicios',        'POST', payload);
-      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
-      closeServicioModal();
-      await loadServicios();
-    } catch (err) {
-      alert(`No se pudo guardar: ${err.message}`);
-    } finally { btn.disabled = false; txt.textContent = 'Guardar Servicio'; }
-  });
-});
+  const payload = {
+    nombre: nom, categoria: cat, descripcion: desc, precio_base: prec,
+    imagen_path: img,
+    tiempo_estimado: document.getElementById('svcTiempo').value.trim() || null,
+    disponible: document.getElementById('svcDisponible').checked,
+  };
+  btn.disabled = true; txt.textContent = 'Guardando...';
+  try {
+    const res = id
+      ? await fetchAuth(`/api/servicios/${id}`, 'PUT',  payload)
+      : await fetchAuth('/api/servicios',        'POST', payload);
+    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
+    closeServicioModal();
+    await loadServicios();
+    showToast('Servicio guardado.', 'success');
+  } catch (err) {
+    showToast(`No se pudo guardar: ${err.message}`, 'error');
+  } finally { btn.disabled = false; txt.textContent = 'Guardar Servicio'; }
+}
 
 /* ══════════════════════════════════════════════════════════════
    USUARIOS
@@ -1066,25 +1088,20 @@ async function loadUsuarios() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('usuariosBody')?.addEventListener('click', handleUsuarioAction);
-  document.getElementById('nuevoUsuarioBtn')?.addEventListener('click', () => openUsuarioModal());
-});
-
 async function handleUsuarioAction(e) {
   const btn = e.target.closest('[data-action]');
   if (!btn) return;
   const id = parseInt(btn.dataset.id);
   const tr = btn.closest('tr');
 
-  if (btn.dataset.action === 'usr-edit') openUsuarioModal(tr._data);
+  if (btn.dataset.action === 'usr-edit') return openUsuarioModal(tr._data);
 
   if (btn.dataset.action === 'usr-toggle') {
     try {
       const r = await fetchAuth(`/api/users/${id}/toggle`, 'PATCH');
       if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.detail); }
       await loadUsuarios();
-    } catch (err) { alert(err.message || 'No se pudo cambiar el estado.'); }
+    } catch (err) { showToast(err.message || 'No se pudo cambiar el estado.', 'error'); }
   }
 }
 
@@ -1111,40 +1128,35 @@ function openUsuarioModal(user = null) {
 
 function closeUsuarioModal() { document.getElementById('usuarioModal')?.classList.remove('modal--open'); }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('usuarioModalClose')?.addEventListener('click',   closeUsuarioModal);
-  document.getElementById('usuarioModalCancel')?.addEventListener('click',  closeUsuarioModal);
-  document.getElementById('usuarioModalOverlay')?.addEventListener('click', closeUsuarioModal);
+async function submitUsuarioForm(e) {
+  e.preventDefault();
+  const id  = document.getElementById('usuarioId').value;
+  const btn = document.getElementById('usuarioFormSubmit');
+  const txt = document.getElementById('usuarioSubmitText');
 
-  document.getElementById('usuarioForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const id  = document.getElementById('usuarioId').value;
-    const btn = document.getElementById('usuarioFormSubmit');
-    const txt = document.getElementById('usuarioSubmitText');
+  const nombre   = document.getElementById('uNombre').value.trim();
+  const apellido = document.getElementById('uApellido').value.trim();
+  const email    = document.getElementById('uEmail').value.trim();
+  const rol      = document.getElementById('uRol').value;
+  const password = document.getElementById('uPassword').value;
 
-    const nombre   = document.getElementById('uNombre').value.trim();
-    const apellido = document.getElementById('uApellido').value.trim();
-    const email    = document.getElementById('uEmail').value.trim();
-    const rol      = document.getElementById('uRol').value;
-    const password = document.getElementById('uPassword').value;
+  if (!nombre || !apellido || !email || !rol) { showToast('Completá todos los campos obligatorios.', 'warning'); return; }
+  if (!id && !password) { showToast('La contraseña es requerida para nuevos usuarios.', 'warning'); return; }
 
-    if (!nombre || !apellido || !email || !rol) { alert('Completá todos los campos obligatorios.'); return; }
-    if (!id && !password) { alert('La contraseña es requerida para nuevos usuarios.'); return; }
-
-    const payload = { nombre, apellido, email, rol, password: password || undefined };
-    btn.disabled = true; txt.textContent = 'Guardando...';
-    try {
-      const res = id
-        ? await fetchAuth(`/api/users/${id}`, 'PUT', payload)
-        : await fetchAuth('/api/users/admin-create', 'POST', { ...payload, password: password });
-      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
-      closeUsuarioModal();
-      await loadUsuarios();
-    } catch (err) {
-      alert(`No se pudo guardar: ${err.message}`);
-    } finally { btn.disabled = false; txt.textContent = 'Guardar Usuario'; }
-  });
-});
+  const payload = { nombre, apellido, email, rol, password: password || undefined };
+  btn.disabled = true; txt.textContent = 'Guardando...';
+  try {
+    const res = id
+      ? await fetchAuth(`/api/users/${id}`, 'PUT', payload)
+      : await fetchAuth('/api/users/admin-create', 'POST', { ...payload, password: password });
+    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).detail || `Error ${res.status}`);
+    closeUsuarioModal();
+    await loadUsuarios();
+    showToast('Usuario guardado.', 'success');
+  } catch (err) {
+    showToast(`No se pudo guardar: ${err.message}`, 'error');
+  } finally { btn.disabled = false; txt.textContent = 'Guardar Usuario'; }
+}
 
 /* ══════════════════════════════════════════════════════════════
    CHARTS
@@ -1189,7 +1201,7 @@ function renderBarChart(canvasId, labels, data, label) {
 }
 
 function renderVisitasChart() {
-  const v = window._visitasData;
+  const v = _visitasData;
   if (!v || !v.labels.length) return;
   const ctx = document.getElementById('chartVisitas')?.getContext('2d');
   if (!ctx) return;
@@ -1230,11 +1242,6 @@ function fetchAuth(path, method = 'GET', body = null) {
   };
   if (body) opts.body = JSON.stringify(body);
   return fetch(`${API}${path}`, opts);
-}
-
-function formatPrice(n) {
-  if (n == null || isNaN(n)) return '—';
-  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(n);
 }
 
 function formatDateShort(iso) {

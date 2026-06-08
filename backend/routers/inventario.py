@@ -25,7 +25,7 @@ def crear_repuesto(
     existing = db.query(models.Repuesto).filter(models.Repuesto.codigo == data.codigo).first()
     if existing:
         raise HTTPException(status_code=400, detail="Ya existe un repuesto con ese código")
-    r = models.Repuesto(**data.dict())
+    r = models.Repuesto(**data.model_dump())
     db.add(r)
     db.commit()
     db.refresh(r)
@@ -48,7 +48,7 @@ def editar_repuesto(
     ).first()
     if dup:
         raise HTTPException(status_code=400, detail="Código ya usado por otro repuesto")
-    for k, v in data.dict().items():
+    for k, v in data.model_dump().items():
         setattr(r, k, v)
     db.commit()
     db.refresh(r)
