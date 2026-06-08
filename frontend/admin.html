@@ -127,6 +127,21 @@
 
       <!-- ── DASHBOARD ─────────────────────────────────────────── -->
       <section class="admin-panel admin-panel--active" id="panel-dashboard">
+        <div class="dashboard-hero">
+          <div class="dashboard-hero__content">
+            <div class="dashboard-hero__eyebrow">Panel de Control</div>
+            <h2 class="dashboard-hero__title">Tu taller al día</h2>
+            <p class="dashboard-hero__text">Administra órdenes, turnos, repuestos y recursos desde un solo tablero. Accede rápidamente a las funciones más importantes y controla el estado operativo del taller.</p>
+          </div>
+          <div class="dashboard-hero__actions">
+            <button type="button" class="btn btn--primary" id="quickOrdenBtn"><i class="fa-solid fa-clipboard-list"></i> Nueva orden</button>
+            <button type="button" class="btn btn--secondary" id="quickTurnoBtn"><i class="fa-solid fa-calendar-plus"></i> Agendar turno</button>
+            <button type="button" class="btn btn--secondary" id="quickServicioBtn"><i class="fa-solid fa-screwdriver-wrench"></i> Nuevo servicio</button>
+            <button type="button" class="btn btn--secondary" id="quickRepuestoBtn"><i class="fa-solid fa-boxes-stacked"></i> Nuevo repuesto</button>
+            <button type="button" class="btn btn--secondary" id="quickUsuarioBtn"><i class="fa-solid fa-user-plus"></i> Nuevo usuario</button>
+          </div>
+        </div>
+
         <div class="stat-cards">
           <div class="stat-card stat-card--warning">
             <div class="stat-card__label">Órdenes Activas</div>
@@ -651,6 +666,7 @@
           <div class="data-table-header">
             <div><div class="data-table-header__title">Clientes</div></div>
             <div class="data-table-actions">
+              <input type="search" class="form__input" id="clientesBuscar" placeholder="Buscar clientes por nombre, email o teléfono" aria-label="Buscar clientes" />
               <button type="button" class="btn btn--secondary btn--sm" id="recargarClientes">
                 <i class="fa-solid fa-rotate-right"></i> Recargar
               </button>

@@ -138,6 +138,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ── CLIENTES ─────────────────────────────────────────────── */
   document.getElementById('recargarClientes')?.addEventListener('click', loadClientes);
+  document.getElementById('clientesBuscar')?.addEventListener('input', debounce(() => loadClientes(), 300));
   document.getElementById('recargarContactos')?.addEventListener('click', () => loadContactos());
   document.getElementById('contactosBuscar')?.addEventListener('input', debounce(() => loadContactos(), 300));
   document.getElementById('contactosEstado')?.addEventListener('change', () => loadContactos());
@@ -150,6 +151,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ── SERVICIOS ────────────────────────────────────────────── */
   document.getElementById('serviciosBody')?.addEventListener('click', handleServicioAction);
   document.getElementById('nuevoServicioBtn')?.addEventListener('click', () => openServicioModal());
+
+  /* ── QUICK ACTIONS ─────────────────────────────────────────── */
+  document.getElementById('quickOrdenBtn')?.addEventListener('click', () => {
+    document.querySelector('[data-panel="ordenes"]')?.click();
+    openOrdenModal();
+  });
+  document.getElementById('quickTurnoBtn')?.addEventListener('click', () => {
+    document.querySelector('[data-panel="agenda"]')?.click();
+    openTurnoModal();
+  });
+  document.getElementById('quickServicioBtn')?.addEventListener('click', () => {
+    document.querySelector('[data-panel="servicios"]')?.click();
+    openServicioModal();
+  });
+  document.getElementById('quickRepuestoBtn')?.addEventListener('click', () => {
+    document.querySelector('[data-panel="inventario"]')?.click();
+    openRepuestoModal();
+  });
+  document.getElementById('quickUsuarioBtn')?.addEventListener('click', () => {
+    document.querySelector('[data-panel="usuarios"]')?.click();
+    openUsuarioModal();
+  });
   document.getElementById('servicioModalClose')?.addEventListener('click',   closeServicioModal);
   document.getElementById('servicioModalCancel')?.addEventListener('click',  closeServicioModal);
   document.getElementById('servicioModalOverlay')?.addEventListener('click', closeServicioModal);
@@ -893,6 +916,12 @@ async function confirmAjusteStock() {
 /* ══════════════════════════════════════════════════════════════
    CLIENTES
    ══════════════════════════════════════════════════════════════ */
+function filterCliente(cliente, query) {
+  if (!query) return true;
+  const text = `${cliente.nombre} ${cliente.apellido} ${cliente.email || ''} ${cliente.telefono || ''}`.toLowerCase();
+  return text.includes(query);
+}
+
 async function loadClientes() {
   const tbody = document.getElementById('clientesBody');
   if (!tbody) return;
@@ -902,12 +931,15 @@ async function loadClientes() {
     const res = await fetchAuth('/api/clientes');
     if (!res.ok) throw new Error();
     const clientes = await res.json();
-    if (!clientes.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="td-empty">No hay clientes aún.</td></tr>';
+    const query = document.getElementById('clientesBuscar')?.value.trim().toLowerCase() || '';
+    const filtered = clientes.filter(cliente => filterCliente(cliente, query));
+
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="td-empty">No hay clientes que coincidan con la búsqueda.</td></tr>';
       return;
     }
     tbody.innerHTML = '';
-    clientes.forEach(c => {
+    filtered.forEach(c => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><strong>${c.nombre} ${c.apellido}</strong></td>
